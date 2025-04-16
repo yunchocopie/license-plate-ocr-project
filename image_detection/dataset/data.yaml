@@ -3,5 +3,5 @@ train: images/train
 val: images/val
 test: images/test
 
-names:
-  0: plate
+nc: 1
+names: ['plate']
