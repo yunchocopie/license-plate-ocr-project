@@ -1,5 +1,6 @@
 .DS_Store
 venv/
 __pycache__/
-.jpg
-.zip
+*.jpg
+*.zip
+*.xml
