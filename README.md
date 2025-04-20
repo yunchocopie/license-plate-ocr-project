@@ -1,6 +1,11 @@
 # 차량 번호 OCR 프로그램
 - 불법 주정차 단속을 위한 차량 번호 OCR 프로그램
 
+## 실행 방법
+```commandline
+streamlit run app.py
+```
+
 # 개발 기간
 - 2025.3 ~
 
