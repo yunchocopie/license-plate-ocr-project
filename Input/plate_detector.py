@@ -19,7 +19,8 @@ def uploaded_files(uploaded_files, save_dir='cropped_plate'):
                 f.write(file.read())
             extract_zip_safely(zip_path, temp_dir)
         else:
-            with open(zip_path, "wb") as f:
+            temp_path = os.path.join(temp_dir, file.name)
+            with open(temp_path, "wb") as f:
                 f.write(file.read())
 
     for root, dirs, files in os.walk(temp_dir):
