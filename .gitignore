@@ -1,0 +1,59 @@
+# Python 가상 환경
+venv/
+env/
+.venv/
+.env/
+
+# Python 캐시 파일
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 배포 관련
+build/
+dist/
+*.egg-info/
+
+# 데이터셋 (용량이 큰 경우가 많음)
+data/raw/
+data/processed/
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# 학습된 모델 파일 (용량이 큰 경우가 많음)
+*.pt
+*.pth
+*.weights
+data/models/*.pt
+data/models/*.pth
+data/models/*.weights
+!data/models/.gitkeep
+
+# 결과 및 로그 폴더
+results/
+outputs/
+logs/
+runs/
+
+# 테스트 이미지 (선택적)
+# test_images/*.jpg
+
+# IDE 관련
+.idea/
+.vscode/
+*.swp
+*.swo
+.ipynb_checkpoints/
+
+# 운영체제 관련
+.DS_Store
+Thumbs.db
+
+# 패키지 관련
+packages/
+
+# 프로젝트 내 생성되는 특정 파일
+*.log
+temp/
