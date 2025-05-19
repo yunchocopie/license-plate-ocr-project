@@ -18,7 +18,7 @@ YOLOv8s를 이용한 차량 및 번호판 탐지, OpenCV를 이용한 이미지 
    ```bash
    git clone https://github.com/yunchocopie/license-plate-ocr-project.git
    cd license-plate-ocr-project
-````
+   ```
 
 2. 필요한 패키지 설치
 
@@ -94,6 +94,6 @@ YOLOv8s를 이용한 차량 및 번호판 탐지, OpenCV를 이용한 이미지 
 * **번호판 숫자 인식:** EasyOCR
 * **UI:** Streamlit
 
-## 감사의 말
+## 협력 및 후원
 
 이 프로젝트는 사하구청과 협력하여 개발되었으며, 동아대학교 SW중심대학사업의 실증적 SW/AI 프로젝트로 진행되었습니다.
