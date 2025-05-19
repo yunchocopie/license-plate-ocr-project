@@ -20,6 +20,25 @@ YOLOv8s를 이용한 차량 및 번호판 탐지, OpenCV를 이용한 이미지 
    cd license-plate-ocr-project
    ```
 
+   
+   ### cf) 특정 브랜치만 클론하기
+
+   1. 로컬에 아무것도 없는 상태에서 `feature/license-plate-ocr` 브랜치만 내려받으려면:
+      ```bash
+      git clone --branch feature/license-plate-ocr \
+      --single-branch \
+      https://github.com/yunchocopie/license-plate-ocr-project.git
+      ```
+
+   2. 전체 레포를 클론한 뒤 해당 브랜치만 체크아웃하려면:
+      ```bash
+      git clone https://github.com/yunchocopie/license-plate-ocr-project.git
+      cd license-plate-ocr-project
+
+      git fetch origin
+      git checkout -b feature/license-plate-ocr origin/feature/license-plate-ocr
+      ```
+
 2. 필요한 패키지 설치
 
    ### Windows (bash/MSYS2 MINGW64)
