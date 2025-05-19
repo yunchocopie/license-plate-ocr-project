@@ -1,0 +1,29 @@
+# 차량번호 OCR 프로그램에 필요한 패키지 목록
+
+# 기본 패키지
+numpy>=1.20.0
+opencv-python>=4.5.0
+Pillow>=8.0.0
+matplotlib>=3.4.0
+
+# 딥러닝 라이브러리
+torch>=1.13.0
+torchvision>=0.14.0
+
+# YOLO 모델
+ultralytics>=8.0.0  # YOLOv8 구현체
+
+# OCR 엔진
+easyocr>=1.6.0
+python-bidi>=0.4.2
+Shapely>=1.8.0
+pyclipper>=1.3.0
+
+# 웹 UI
+streamlit>=1.26.0
+
+# 유틸리티
+tqdm>=4.64.0
+PyYAML>=6.0
+scikit-learn>=1.0.0  # 성능 평가 메트릭 계산용
+python-Levenshtein>=0.12.0  # 문자열 유사도 측정용
