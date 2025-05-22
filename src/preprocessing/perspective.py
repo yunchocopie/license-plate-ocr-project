@@ -82,11 +82,9 @@ class PerspectiveCorrection:
         epsilon = 0.02 * cv2.arcLength(max_contour, True)
         approx = cv2.approxPolyDP(max_contour, epsilon, True)
         
-        # 근사 윤곽선이 4점이 아니면 원본 이미지 반환
+        # 근사 윤곽선이 4점이 아니면 회전만 적용된 이미지 반환
         if len(approx) != 4:
-            # 외접 사각형 사용
-            x, y, w, h = cv2.boundingRect(max_contour)
-            src_pts = np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], dtype=np.float32)
+            return rotated
         else:
             # 근사 윤곽선 4점 사용
             src_pts = approx.reshape(4, 2).astype(np.float32)
@@ -99,6 +97,10 @@ class PerspectiveCorrection:
                    int(np.linalg.norm(src_pts[2] - src_pts[3])))
         height = max(int(np.linalg.norm(src_pts[0] - src_pts[3])), 
                     int(np.linalg.norm(src_pts[1] - src_pts[2])))
+        
+        # width, height가 너무 작으면 회전만 적용된 이미지 반환
+        if width < 10 or height < 10:
+            return rotated
         
         dst_pts = np.array([
             [0, 0],
