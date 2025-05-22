@@ -3,12 +3,207 @@ import numpy as np
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import Levenshtein
 import time
+from typing import Tuple, Dict
 
 """
 성능 측정 도구 모듈
 
-이 모듈은 객체 감지 및 OCR 인식 성능을 측정하는 함수들을 제공합니다.
+이 모듈은 다음과 같은 기능을 제공합니다:
+1. 객체 감지 및 OCR 인식 성능 측정
+2. 이미지 품질 평가 (선명도, 대비도, 노이즈 레벨)
+3. 처리 시간 벤치마크
 """
+
+# ==========================================
+# 이미지 품질 평가 함수들
+# ==========================================
+
+def calculate_sharpness(image: np.ndarray) -> float:
+    """
+    이미지 선명도를 측정 (Laplacian 분산 방법)
+    
+    Args:
+        image (numpy.ndarray): 입력 이미지 (그레이스케일 또는 컬러)
+        
+    Returns:
+        float: 선명도 점수 (높을수록 선명함)
+    """
+    # 그레이스케일 변환
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+    
+    # Laplacian 필터 적용
+    laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+    
+    # 분산 계산 (선명도 지표)
+    sharpness = laplacian.var()
+    
+    return float(sharpness)
+
+def calculate_contrast(image: np.ndarray) -> float:
+    """
+    이미지 대비도를 측정 (표준편차 방법)
+    
+    Args:
+        image (numpy.ndarray): 입력 이미지 (그레이스케일 또는 컬러)
+        
+    Returns:
+        float: 대비도 점수 (높을수록 대비가 좋음)
+    """
+    # 그레이스케일 변환
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+    
+    # 표준편차 계산 (대비도 지표)
+    contrast = gray.std()
+    
+    return float(contrast)
+
+def calculate_noise_level(image: np.ndarray) -> float:
+    """
+    이미지 노이즈 레벨을 측정 (Bilateral Filter 비교 방법)
+    
+    Args:
+        image (numpy.ndarray): 입력 이미지 (그레이스케일 또는 컬러)
+        
+    Returns:
+        float: 노이즈 레벨 (높을수록 노이즈가 많음)
+    """
+    # 그레이스케일 변환
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+    
+    # Bilateral Filter 적용 (노이즈 제거)
+    filtered = cv2.bilateralFilter(gray, 9, 75, 75)
+    
+    # 원본과 필터링된 이미지의 차이 계산
+    noise = np.abs(gray.astype(np.float32) - filtered.astype(np.float32))
+    
+    # 노이즈 레벨 (평균 절대 차이)
+    noise_level = noise.mean()
+    
+    return float(noise_level)
+
+def calculate_brightness(image: np.ndarray) -> float:
+    """
+    이미지 밝기를 측정
+    
+    Args:
+        image (numpy.ndarray): 입력 이미지 (그레이스케일 또는 컬러)
+        
+    Returns:
+        float: 밝기 점수 (0-255 범위)
+    """
+    # 그레이스케일 변환
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+    
+    # 평균 밝기 계산
+    brightness = gray.mean()
+    
+    return float(brightness)
+
+def assess_image_quality(image: np.ndarray) -> Dict[str, float]:
+    """
+    이미지의 전반적인 품질을 평가
+    
+    Args:
+        image (numpy.ndarray): 입력 이미지
+        
+    Returns:
+        dict: 품질 평가 결과
+            - sharpness: 선명도 점수
+            - contrast: 대비도 점수
+            - noise_level: 노이즈 레벨
+            - brightness: 밝기 점수
+            - overall_score: 종합 품질 점수 (0-100)
+    """
+    # 개별 품질 지표 계산
+    sharpness = calculate_sharpness(image)
+    contrast = calculate_contrast(image)
+    noise_level = calculate_noise_level(image)
+    brightness = calculate_brightness(image)
+    
+    # 정규화를 위한 기준값들 (경험적 설정)
+    sharpness_max = 1000.0  # 일반적인 선명한 이미지의 최대값
+    contrast_max = 80.0     # 일반적인 대비 좋은 이미지의 최대값
+    noise_max = 20.0        # 일반적인 노이즈 많은 이미지의 최대값
+    brightness_optimal = 127.5  # 최적 밝기 (중간값)
+    
+    # 정규화 (0-1 범위)
+    sharpness_norm = min(sharpness / sharpness_max, 1.0)
+    contrast_norm = min(contrast / contrast_max, 1.0)
+    noise_norm = max(0.0, 1.0 - (noise_level / noise_max))  # 노이즈는 낮을수록 좋음
+    
+    # 밝기는 중간값(127.5)에서 멀어질수록 점수 감소
+    brightness_norm = 1.0 - abs(brightness - brightness_optimal) / brightness_optimal
+    brightness_norm = max(0.0, brightness_norm)
+    
+    # 가중 평균으로 종합 점수 계산
+    weights = {
+        'sharpness': 0.35,    # 선명도가 가장 중요
+        'contrast': 0.25,     # 대비도 중요
+        'noise': 0.25,        # 노이즈 레벨 중요
+        'brightness': 0.15    # 밝기는 상대적으로 덜 중요
+    }
+    
+    overall_score = (
+        sharpness_norm * weights['sharpness'] +
+        contrast_norm * weights['contrast'] +
+        noise_norm * weights['noise'] +
+        brightness_norm * weights['brightness']
+    ) * 100.0  # 0-100 스케일로 변환
+    
+    return {
+        'sharpness': sharpness,
+        'contrast': contrast,
+        'noise_level': noise_level,
+        'brightness': brightness,
+        'sharpness_norm': sharpness_norm,
+        'contrast_norm': contrast_norm,
+        'noise_norm': noise_norm,
+        'brightness_norm': brightness_norm,
+        'overall_score': overall_score
+    }
+
+def determine_processing_level(quality_metrics: Dict[str, float]) -> str:
+    """
+    품질 평가 결과를 바탕으로 처리 수준을 결정
+    
+    Args:
+        quality_metrics (dict): assess_image_quality()의 결과
+        
+    Returns:
+        str: 처리 수준 ('minimal', 'moderate', 'full')
+    """
+    overall_score = quality_metrics['overall_score']
+    sharpness_norm = quality_metrics['sharpness_norm']
+    noise_norm = quality_metrics['noise_norm']
+    
+    # 고품질 이미지 (최소 처리)
+    if overall_score >= 75 and sharpness_norm >= 0.8 and noise_norm >= 0.8:
+        return 'minimal'
+    
+    # 중간 품질 이미지 (적당한 처리)
+    elif overall_score >= 45 and sharpness_norm >= 0.4:
+        return 'moderate'
+    
+    # 저품질 이미지 (전체 처리)
+    else:
+        return 'full'
+
+# ==========================================
+# 기존 성능 측정 함수들
+# ==========================================
+
 def calculate_iou(box1, box2):
     """
     두 박스 간의 IoU(Intersection over Union) 계산
