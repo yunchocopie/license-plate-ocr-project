@@ -1,4 +1,3 @@
-
 # OCR Engine 관련
 OCR_LANGUAGES = ['ko', 'en']
 OCR_GPU = True  # 사용 가능하면 True, 아니면 False
