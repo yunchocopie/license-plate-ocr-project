@@ -56,52 +56,6 @@ class PerspectiveCorrection:
             if angle < -45.0:
                 angle += 90.0
             
-            # 회전 중심 및 행렬 계산
-            center = tuple(np.array(img_to_process.shape[1::-1]) / 2) # (width/2, height/2)
-            rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
-
-            # 회전 적용 (그레이스케일 원본 이미지에 적용)
-            # 경계 영역은 흰색(255)으로 채워서 글자인식이 방해받지 않도록 함
-            rotated_image = cv2.warpAffine(img_to_process, rot_mat, img_to_process.shape[1::-1],
-                                           flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=255)
-
-            # 회전 후, 새로운 윤곽선을 찾아야 할 수 있음 (또는 회전된 box_points를 사용)
-            # 여기서는 회전된 이미지를 기반으로 다시 윤곽선을 찾아 원근 변환 시도
-            binary_rotated = cv2.adaptiveThreshold(rotated_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                               cv2.THRESH_BINARY, 11, 5)
-            contours_rotated, _ = cv2.findContours(binary_rotated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if not contours_rotated:
-                return rotated_image # 회전만 된 이미지 반환
-            max_contour = max(contours_rotated, key=cv2.contourArea)
-            if cv2.contourArea(max_contour) < img_area * 0.01 : # 너무 작으면
-                 return rotated_image
-            rect = cv2.minAreaRect(max_contour) # 새로운 rect 사용
-            box_points = cv2.boxPoints(rect)
-            box = np.intp(box_points)
-        else: # 회전이 거의 필요 없는 경우
-            pass # rotated_image는 여전히 img_to_process (원본 그레이스케일)
-
-
-        # 원근 변환을 위한 사각형 점 찾기
-        # approxPolyDP 사용 또는 minAreaRect의 box_points 사용
-        # 여기서는 minAreaRect의 box_points를 사용 (더 안정적일 수 있음)
-        src_pts = box_points.astype("float32")
-
-        # 사각형 정렬 (좌상, 우상, 우하, 좌하)
-        src_pts_ordered = self.order_points(src_pts)
-
-        (tl, tr, br, bl) = src_pts_ordered
-        width_a = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
-        width_b = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
-        max_width = max(int(width_a), int(width_b))
-
-        height_a = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
-        height_b = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
-        max_height = max(int(height_a), int(height_b))
-
-        # 결과 이미지 크기가 너무 작거나 비율이 이상하면 원본(또는 회전된 이미지) 반환
-        if max_width < 30 or max_height < 10 or max_width / max_height < 1.5 or max_width / max_height > 5.0:
-             return rotated_image # 원본 또는 회전만 된 이미지
 
         dst_pts = np.array([
             [0, 0],

@@ -2,6 +2,7 @@ import streamlit as st
 from PIL import Image
 import numpy as np
 import time
+import matplotlib.pyplot as plt
 
 # 내부 모듈 임포트
 from src.detection.vehicle_detector import VehicleDetector
@@ -10,197 +11,251 @@ from src.preprocessing.image_processor import ImageProcessor
 from src.ocr.ocr_engine import OCREngine
 from src.utils.visualization import visualize_vehicle_detection, visualize_plate_detection, visualize_results
 
-st.set_page_config(
-    page_title="차량번호 OCR 프로그램 (디버그 모드)",
-    page_icon="🚗",
-    layout="wide"
-)
-st.title("차량번호 OCR 프로그램 (디버그 모드)")
-st.markdown("자동 파이프라인: 차량 감지 → 실패 시 직접 번호판 감지")
+st.set_page_config(page_title="OCR Debug", page_icon="🚗", layout="wide")
+st.title("차량번호 OCR - 개발 디버그")
 
 # 모델 초기화
-try:
-    vehicle_detector = VehicleDetector()
-    plate_detector = PlateDetector()
-    image_processor = ImageProcessor()
-    ocr_engine = OCREngine()
-except Exception as e:
-    st.error(f"모델 초기화 중 오류가 발생했습니다: {str(e)}")
-    st.stop()
+@st.cache_resource
+def load_models():
+    return VehicleDetector(), PlateDetector(), ImageProcessor(), OCREngine()
 
-# 이미지 업로드 UI
+vehicle_detector, plate_detector, image_processor, ocr_engine = load_models()
+
+# 이미지 업로드
 uploaded_file = st.file_uploader("이미지 업로드", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    try:
-        # 1. 이미지 로드
-        image = Image.open(uploaded_file)
-        image_np = np.array(image)
-        st.header("원본 이미지")
-        st.image(image, use_column_width=True)
-        total_start = time.time()
+    image = Image.open(uploaded_file)
+    image_np = np.array(image)
+    
+    st.header("원본 이미지")
+    st.image(image, width=600)
+    
+    total_start = time.time()
+    results = []
+    
+    # 1단계: 차량 감지
+    st.header("1단계: 차량 감지")
+    vehicle_start = time.time()
+    vehicle_boxes = vehicle_detector.detect(image_np)
+    vehicle_time = time.time() - vehicle_start
+    
+    st.write(f"감지된 차량: {len(vehicle_boxes)}개")
+    st.write(f"처리 시간: {vehicle_time:.3f}초")
+    
+    if vehicle_boxes:
+        st.image(visualize_vehicle_detection(image_np.copy(), vehicle_boxes), width=600)
         
-        # 파이프라인 1단계: 차량 감지
-        vehicle_start = time.time()
-        vehicle_boxes = vehicle_detector.detect(image_np)
-        vehicle_time = time.time() - vehicle_start
-        
-        results = []
-        plate_images = []
-        processed_plates = []
-        plate_texts = []
-        plate_time = 0
-        preprocess_time = 0
-        ocr_time = 0
-        direct_plate_time = 0
-        
-        # 차량이 감지되었을 경우
-        if len(vehicle_boxes) > 0:
-            st.header("1단계: 차량 감지 결과")
-            st.write(f"감지된 차량: {len(vehicle_boxes)}개 (처리 시간: {vehicle_time:.3f}초)")
-            st.image(visualize_vehicle_detection(image_np.copy(), vehicle_boxes), use_column_width=True)
+        # 차량별 번호판 감지
+        for idx, vehicle_box in enumerate(vehicle_boxes):
+            st.subheader(f"차량 {idx+1}")
+            x1, y1, x2, y2 = vehicle_box
+            vehicle_img = image_np[y1:y2, x1:x2]
             
-            # 파이프라인 2단계: 차량별 번호판 감지 및 OCR
-            for idx, vehicle_box in enumerate(vehicle_boxes):
-                x1, y1, x2, y2 = vehicle_box
-                vehicle_img = image_np[y1:y2, x1:x2]
-                # 번호판 감지
-                plate_start = time.time()
-                plate_boxes = plate_detector.detect(vehicle_img)
-                plate_time += time.time() - plate_start
+            # 번호판 감지
+            plate_start = time.time()
+            plate_boxes = plate_detector.detect(vehicle_img)
+            plate_time = time.time() - plate_start
+            
+            st.write(f"번호판 감지: {len(plate_boxes)}개, 시간: {plate_time:.3f}초")
+            
+            if plate_boxes:
+                st.image(visualize_plate_detection(vehicle_img.copy(), plate_boxes), width=400)
                 
-                if len(plate_boxes) > 0:
-                    st.subheader(f"차량 {idx+1}의 번호판 감지 결과")
-                    st.write(f"감지된 번호판: {len(plate_boxes)}개")
-                    st.image(visualize_plate_detection(vehicle_img.copy(), plate_boxes), use_column_width=True)
-                    
-                    for pidx, plate_box in enumerate(plate_boxes):
-                        px1, py1, px2, py2 = plate_box
-                        plate_img = vehicle_img[py1:py2, px1:px2]
-                        plate_images.append(plate_img)
-                        # 전처리
-                        pre_start = time.time()
-                        processed = image_processor.process(plate_img)
-                        preprocess_time += time.time() - pre_start
-                        processed_plates.append(processed)
-                        # OCR
-                        ocr_start = time.time()
-                        text, conf = ocr_engine.recognize_with_confidence(processed)
-                        ocr_time += time.time() - ocr_start
-                        plate_texts.append(text)
-                        # 단계별 시각화
-                        st.markdown(f"**차량 {idx+1}, 번호판 {pidx+1}**")
-                        cols = st.columns(2)
-                        cols[0].image(plate_img, caption="원본 번호판", use_column_width=True)
-                        cols[1].image(processed, caption="처리된 번호판", use_column_width=True)
-                        # 단계별 전처리 시각화
-                        with st.expander("전처리 단계별 이미지"):
-                            steps = image_processor.visualize_steps(plate_img)
-                            for step_name, step_img in steps.items():
-                                st.image(step_img, caption=step_name, use_column_width=True)
-                        st.write(f"OCR 결과: {text} (신뢰도: {conf:.2f})")
-                        # 결과 저장
-                        results.append({
-                            "vehicle_box": vehicle_box,
-                            "plate_box": [vehicle_box[0]+px1, vehicle_box[1]+py1, vehicle_box[0]+px2, vehicle_box[1]+py2],
-                            "plate_text": text
-                        })
-        
-        # 차량이 감지되지 않았거나, 차량에서 번호판을 찾지 못한 경우
-        if len(results) == 0:
-            st.header("차량 감지 실패 또는 번호판 미발견")
-            st.warning("차량 감지에 실패했거나 차량에서 번호판을 찾지 못했습니다. 직접 번호판 감지를 시도합니다.")
-            
-            # 파이프라인 대체 단계: 직접 번호판 감지
-            direct_plate_start = time.time()
-            plate_boxes = plate_detector.detect(image_np)
-            direct_plate_time = time.time() - direct_plate_start
-            
-            st.subheader("직접 번호판 감지 결과")
-            st.write(f"감지된 번호판: {len(plate_boxes)}개 (처리 시간: {direct_plate_time:.3f}초)")
-            
-            if len(plate_boxes) > 0:
-                st.image(visualize_plate_detection(image_np.copy(), plate_boxes), use_column_width=True)
-                
+                # 각 번호판 처리
                 for pidx, plate_box in enumerate(plate_boxes):
                     px1, py1, px2, py2 = plate_box
-                    plate_img = image_np[py1:py2, px1:px2]
-                    plate_images.append(plate_img)
+                    plate_img = vehicle_img[py1:py2, px1:px2]
+                    
+                    st.write(f"번호판 {pidx+1}")
+                    
+                    # 품질 평가 (1단계 기능)
+                    quality_start = time.time()
+                    try:
+                        if hasattr(image_processor, 'assess_image_quality'):
+                            quality_metrics, processing_level = image_processor.assess_image_quality(plate_img)
+                            st.write(f"품질 점수: {quality_metrics['overall_score']:.1f}/100")
+                            st.write(f"처리 수준: {processing_level.upper()}")
+                        else:
+                            processing_level = 'full'
+                            quality_metrics = {'overall_score': 0}
+                    except:
+                        processing_level = 'full'
+                        quality_metrics = {'overall_score': 0}
+                    quality_time = time.time() - quality_start
+                    
                     # 전처리
-                    pre_start = time.time()
+                    preprocess_start = time.time()
                     processed = image_processor.process(plate_img)
-                    preprocess_time += time.time() - pre_start
-                    processed_plates.append(processed)
+                    preprocess_time = time.time() - preprocess_start
+                    
                     # OCR
                     ocr_start = time.time()
                     text, conf = ocr_engine.recognize_with_confidence(processed)
-                    ocr_time += time.time() - ocr_start
-                    plate_texts.append(text)
-                    # 단계별 시각화
-                    st.markdown(f"**직접 감지 번호판 {pidx+1}**")
-                    cols = st.columns(2)
-                    cols[0].image(plate_img, caption="원본 번호판", use_column_width=True)
-                    cols[1].image(processed, caption="처리된 번호판", use_column_width=True)
-                    # 단계별 전처리 시각화
-                    with st.expander("전처리 단계별 이미지"):
+                    ocr_time = time.time() - ocr_start
+                    
+                    # 단계별 전처리 시각화 (Matplotlib + Streamlit)
+                    if st.checkbox(f"전처리 단계별 시각화 보기 (번호판 {pidx+1})", key=f"viz_{idx}_{pidx}"):
                         steps = image_processor.visualize_steps(plate_img)
-                        for step_name, step_img in steps.items():
-                            st.image(step_img, caption=step_name, use_column_width=True)
-                    st.write(f"OCR 결과: {text} (신뢰도: {conf:.2f})")
-                    # 결과 저장 (차량 박스 없음)
+                        fig, axes = plt.subplots(1, len(steps), figsize=(3*len(steps), 3))
+                        if len(steps) == 1:
+                            axes = [axes]
+                        for ax, (step_name, step_img) in zip(axes, steps.items()):
+                            if len(step_img.shape) == 2:
+                                ax.imshow(step_img, cmap='gray')
+                            else:
+                                ax.imshow(step_img)
+                            ax.set_title(step_name)
+                            ax.axis('off')
+                        st.pyplot(fig)
+                        plt.close(fig)
+                    
+                    # 결과 표시
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.image(plate_img, caption="원본", width=150)
+                    with col2:
+                        st.image(processed, caption=f"처리됨({processing_level})", width=150)
+                    with col3:
+                        st.write(f"텍스트: **{text}**")
+                        st.write(f"신뢰도: {conf:.2f}")
+                        st.write(f"품질평가: {quality_time*1000:.1f}ms")
+                        st.write(f"전처리: {preprocess_time*1000:.1f}ms")
+                        st.write(f"OCR: {ocr_time*1000:.1f}ms")
+                    
+                    # 결과 저장
                     results.append({
-                        "vehicle_box": None,
-                        "plate_box": plate_box,
-                        "plate_text": text
+                        "vehicle_box": vehicle_box,
+                        "plate_box": [vehicle_box[0]+px1, vehicle_box[1]+py1, vehicle_box[0]+px2, vehicle_box[1]+py2],
+                        "plate_text": text,
+                        "confidence": conf,
+                        "quality_score": quality_metrics['overall_score'],
+                        "processing_level": processing_level
                     })
+    
+    # 차량 감지 실패 시 직접 번호판 감지
+    if len(results) == 0:
+        st.header("대체: 직접 번호판 감지")
+        direct_start = time.time()
+        plate_boxes = plate_detector.detect(image_np)
+        direct_time = time.time() - direct_start
         
-        # 최종 결과 요약
-        total_time = time.time() - total_start
-        st.header("최종 인식 결과")
+        st.write(f"직접 감지: {len(plate_boxes)}개, 시간: {direct_time:.3f}초")
         
-        if len(results) > 0:
-            # 최종 결과 시각화
-            final_image = visualize_results(image_np.copy(), results)
-            st.image(final_image, use_column_width=True)
+        if plate_boxes:
+            st.image(visualize_plate_detection(image_np.copy(), plate_boxes), width=600)
             
-            # 인식된 번호판 텍스트 표시
-            st.subheader("인식된 번호판")
-            for idx, result in enumerate(results):
-                st.write(f"번호판 {idx+1}: {result['plate_text']}")
+            for pidx, plate_box in enumerate(plate_boxes):
+                px1, py1, px2, py2 = plate_box
+                plate_img = image_np[py1:py2, px1:px2]
                 
-            st.success(f"{len(results)}개의 번호판이 감지되었습니다.")
-        else:
-            st.error("번호판을 찾지 못했습니다.")
-            
-        # 시간 비중 그래프
-        st.subheader("단계별 처리 시간")
-        time_data = {
-            "단계": ["차량 감지", "번호판 감지", "직접 번호판 감지", "이미지 전처리", "OCR 처리", "기타"],
-            "시간(초)": [
-                vehicle_time, 
-                plate_time, 
-                direct_plate_time,
-                preprocess_time, 
-                ocr_time, 
-                total_time - (vehicle_time + plate_time + direct_plate_time + preprocess_time + ocr_time)
-            ]
-        }
-        st.bar_chart(time_data, x="단계", y="시간(초)")
+                st.write(f"번호판 {pidx+1}")
+                
+                # 품질 평가
+                quality_start = time.time()
+                try:
+                    if hasattr(image_processor, 'assess_image_quality'):
+                        quality_metrics, processing_level = image_processor.assess_image_quality(plate_img)
+                    else:
+                        processing_level = 'full'
+                        quality_metrics = {'overall_score': 0}
+                except:
+                    processing_level = 'full'
+                    quality_metrics = {'overall_score': 0}
+                quality_time = time.time() - quality_start
+                
+                # 전처리
+                preprocess_start = time.time()
+                processed = image_processor.process(plate_img)
+                preprocess_time = time.time() - preprocess_start
+                
+                # OCR
+                ocr_start = time.time()
+                text, conf = ocr_engine.recognize_with_confidence(processed)
+                ocr_time = time.time() - ocr_start
+                
+                # 단계별 전처리 시각화 (Matplotlib + Streamlit)
+                if st.checkbox(f"전처리 단계별 시각화 보기 (번호판 {pidx+1})", key=f"viz_direct_{pidx}"):
+                    steps = image_processor.visualize_steps(plate_img)
+                    fig, axes = plt.subplots(1, len(steps), figsize=(3*len(steps), 3))
+                    if len(steps) == 1:
+                        axes = [axes]
+                    for ax, (step_name, step_img) in zip(axes, steps.items()):
+                        if len(step_img.shape) == 2:
+                            ax.imshow(step_img, cmap='gray')
+                        else:
+                            ax.imshow(step_img)
+                        ax.set_title(step_name)
+                        ax.axis('off')
+                    st.pyplot(fig)
+                    plt.close(fig)
+                
+                # 결과 표시
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.image(plate_img, caption="원본", width=150)
+                with col2:
+                    st.image(processed, caption=f"처리됨({processing_level})", width=150)
+                with col3:
+                    st.write(f"텍스트: **{text}**")
+                    st.write(f"신뢰도: {conf:.2f}")
+                    st.write(f"품질평가: {quality_time*1000:.1f}ms")
+                    st.write(f"전처리: {preprocess_time*1000:.1f}ms")
+                    st.write(f"OCR: {ocr_time*1000:.1f}ms")
+                
+                # 결과 저장
+                results.append({
+                    "vehicle_box": None,
+                    "plate_box": plate_box,
+                    "plate_text": text,
+                    "confidence": conf,
+                    "quality_score": quality_metrics['overall_score'],
+                    "processing_level": processing_level
+                })
+    
+    # 최종 결과
+    total_time = time.time() - total_start
+    
+    st.header("최종 결과")
+    st.write(f"총 처리 시간: {total_time:.3f}초")
+    st.write(f"인식된 번호판: {len(results)}개")
+    
+    if results:
+        # 최종 시각화
+        final_image = visualize_results(image_np.copy(), results)
+        st.image(final_image, width=600)
         
-        # 디버그 정보
-        with st.expander("원본 디버그 데이터"):
-            st.json({
-                "총 처리 시간": total_time,
-                "차량 감지 시간": vehicle_time,
-                "번호판 감지 시간": plate_time,
-                "직접 번호판 감지 시간": direct_plate_time,
-                "이미지 전처리 시간": preprocess_time,
-                "OCR 처리 시간": ocr_time,
-                "감지된 번호판 수": len(plate_images),
-                "인식된 번호판 텍스트": plate_texts,
-                "결과": results
-            })
-    except Exception as e:
-        st.error(f"이미지 처리 중 오류가 발생했습니다: {str(e)}")
-        import traceback
-        st.code(traceback.format_exc(), language="python")
+        # 결과 테이블
+        st.subheader("상세 결과")
+        for idx, result in enumerate(results):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.write(f"번호판 {idx+1}")
+            with col2:
+                st.write(f"**{result['plate_text']}**")
+            with col3:
+                st.write(f"신뢰도: {result['confidence']:.2f}")
+            with col4:
+                st.write(f"품질: {result['quality_score']:.1f}")
+        
+        # 처리 수준 통계 (1단계 기능)
+        if any(r.get('processing_level') for r in results):
+            processing_levels = [r['processing_level'] for r in results if r.get('processing_level')]
+            level_counts = {}
+            for level in processing_levels:
+                level_counts[level] = level_counts.get(level, 0) + 1
+            
+            st.subheader("처리 수준 분포")
+            for level, count in level_counts.items():
+                st.write(f"{level.upper()}: {count}개")
+    else:
+        st.error("번호판을 찾지 못했습니다.")
+    
+    # 디버그 정보
+    with st.expander("디버그 데이터"):
+        debug_info = {
+            "총_처리_시간": total_time,
+            "감지된_번호판_수": len(results),
+            "결과": results
+        }
+        st.json(debug_info)
