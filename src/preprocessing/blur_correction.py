@@ -2,110 +2,58 @@ import cv2
 import numpy as np
 import config
 
-"""
-흐림 보정 모듈
-
-이 모듈은 번호판 이미지의 흐림(블러)을 개선하는 클래스를 제공합니다.
-역컨볼루션 기법과 샤프닝 알고리즘을 사용하여 흐린 이미지를 선명하게 만듭니다.
-"""
 class BlurCorrection:
-    """흐림 보정을 위한 클래스"""
-    
     def __init__(self, kernel_size=None, sigma=None):
-        """
-        BlurCorrection 클래스 초기화
-        
-        Args:
-            kernel_size (tuple, optional): 가우시안 커널 크기. 기본값은 config에서 가져옴
-            sigma (float, optional): 가우시안 시그마 값. 기본값은 config에서 가져옴
-        """
         self.kernel_size = kernel_size or config.BLUR_KERNEL_SIZE
         self.sigma = sigma or config.BLUR_SIGMA
-    
-    def correct(self, image):
-        """
-        흐림 보정 수행
-        
-        Args:
-            image (numpy.ndarray): 그레이스케일 이미지
-            
-        Returns:
-            numpy.ndarray: 흐림이 보정된 이미지
-        """
-        # 1. 언샤프 마스킹 (Unsharp Masking) 적용
-        # 가우시안 블러 적용
-        gaussian = cv2.GaussianBlur(image, self.kernel_size, self.sigma)
-        # 원본 이미지와의 차이 계산
-        unsharp_mask = cv2.addWeighted(image, 2.0, gaussian, -1.0, 0)
-        
-        # 2. 윈도우 기반 선명화 (Window-based sharpening)
-        kernel = np.array([[-1, -1, -1],
-                          [-1,  9, -1],
-                          [-1, -1, -1]], dtype=np.float32)
-        sharpened = cv2.filter2D(unsharp_mask, -1, kernel)
-        
-        # 3. 라플라시안 선명화 (Laplacian sharpening)
-        laplacian = cv2.Laplacian(image, cv2.CV_64F)
-        laplacian = np.uint8(np.absolute(laplacian))
-        sharpened2 = cv2.addWeighted(sharpened, 0.7, laplacian, 0.3, 0)
-        
-        # 4. 경계선(Edge) 개선
-        # 소벨 필터 적용
-        sobelx = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3)
-        sobely = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3)
-        sobelx = np.uint8(np.absolute(sobelx))
-        sobely = np.uint8(np.absolute(sobely))
-        sobel = cv2.addWeighted(sobelx, 0.5, sobely, 0.5, 0)
-        
-        # 5. 최종 이미지: 선명화된 이미지와 경계선 가중 합성
-        result = cv2.addWeighted(sharpened2, 0.8, sobel, 0.2, 0)
-        
-        # 6. 대비 조정
-        result = self.adjust_contrast(result)
-        
+
+    def correct(self, image): # 입력은 그레이스케일 이미지로 가정
+        if image is None or image.size == 0:
+            return image # 또는 적절한 빈 이미지 반환
+
+        # 1. 언샤프 마스킹 (비교적 안전하고 효과적인 방법)
+        # 가우시안 블러의 sigma 값을 0으로 하면 커널 크기에 맞게 자동 계산됨
+        gaussian_blurred = cv2.GaussianBlur(image, self.kernel_size, self.sigma)
+        # addWeighted의 가중치를 조절하여 샤프닝 강도 조절 (예: 1.5, -0.5)
+        # image * (1 + alpha) - gaussian_blurred * alpha
+        # 여기서 alpha는 0.5, 1+alpha = 1.5
+        unsharp_masked = cv2.addWeighted(image, 1.5, gaussian_blurred, -0.5, 0)
+
+        # 추가적인 강한 샤프닝은 주석 처리하거나 매우 약하게 적용.
+        # 현재 이미지에는 이정도면 충분하거나 오히려 과할 수 있음.
+        # kernel = np.array([[-1, -1, -1],
+        #                   [-1,  9, -1],
+        #                   [-1, -1, -1]], dtype=np.float32)
+        # sharpened = cv2.filter2D(unsharp_masked, -1, kernel)
+        # laplacian = cv2.Laplacian(image, cv2.CV_64F) # 원본 이미지에 라플라시안
+        # laplacian_uint8 = np.uint8(np.absolute(laplacian))
+        # sharpened2 = cv2.addWeighted(sharpened, 0.7, laplacian_uint8, 0.3, 0)
+
+        # 경계선 개선 등은 노이즈를 증폭시킬 수 있으므로 주의
+        # sobelx = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3)
+        # ...
+
+        # 최종적으로 대비 조정된 이미지 반환
+        # 대비 조정은 ImageProcessor의 마지막 단계에서 수행하거나, 여기서도 가능
+        # clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8)) # clipLimit 낮춤
+        # result = clahe.apply(unsharp_masked)
+        result = unsharp_masked # 대비조정은 ImageProcessor에서
+
+        if result.dtype != np.uint8:
+            result = np.clip(result, 0, 255).astype(np.uint8)
+
         return result
-    
+
     def adjust_contrast(self, image, clip_limit=2.0, tile_grid_size=(8, 8)):
-        """
-        이미지 대비 조정
-        
-        Args:
-            image (numpy.ndarray): 입력 이미지
-            clip_limit (float, optional): CLAHE 클립 한계. 기본값은 2.0
-            tile_grid_size (tuple, optional): CLAHE 타일 그리드 크기. 기본값은 (8, 8)
-            
-        Returns:
-            numpy.ndarray: 대비가 조정된 이미지
-        """
-        # CLAHE(Contrast Limited Adaptive Histogram Equalization) 적용
+        # 이 함수는 ImageProcessor에서도 사용 가능하므로 여기에 둬도 괜찮음
+        if image.dtype != np.uint8:
+             # CLAHE는 uint8 타입 이미지에 적용되어야 함
+             img_for_clahe = np.clip(image, 0, 255).astype(np.uint8)
+        else:
+             img_for_clahe = image
+
         clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-        return clahe.apply(image)
-    
-    def blind_deconvolution(self, image, iterations=10):
-        """
-        블라인드 디컨볼루션(Blind Deconvolution)을 통한 흐림 보정 (추가적인 방법)
-        참고: 계산 비용이 높음
-        
-        Args:
-            image (numpy.ndarray): 입력 이미지
-            iterations (int, optional): 디컨볼루션 반복 횟수. 기본값은 10
-            
-        Returns:
-            numpy.ndarray: 디컨볼루션이 적용된 이미지
-        """
-        # 초기 PSF(Point Spread Function) 추정
-        psf = np.ones((5, 5)) / 25
-        
-        # Wiener 필터를 사용한 디컨볼루션
-        deconvolved = image.copy().astype(np.float32)
-        
-        for _ in range(iterations):
-            # Richardson-Lucy 알고리즘의 간소화된 버전
-            blurred = cv2.filter2D(deconvolved, -1, psf)
-            relative_blur = cv2.divide(image.astype(np.float32), blurred + 1e-10)
-            deconvolved = cv2.multiply(deconvolved, cv2.filter2D(relative_blur, -1, psf[::-1, ::-1]))
-        
-        # 범위 정규화 및 8비트 변환
-        deconvolved = np.clip(deconvolved, 0, 255).astype(np.uint8)
-        
-        return deconvolved
+        return clahe.apply(img_for_clahe)
+
+    # blind_deconvolution은 계산 비용이 매우 높으므로, 꼭 필요한 경우가 아니면 사용하지 않는 것이 좋음
+    # def blind_deconvolution(...)
