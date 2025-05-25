@@ -127,36 +127,53 @@ class ImageProcessor:
     def visualize_steps(self, image):
         steps = {'original': image.copy()}
 
+        # 1. 그레이스케일 변
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image.copy()
         steps['gray'] = gray.copy()
 
+        # 노이즈 제거
         denoised = cv2.fastNlMeansDenoising(gray, None, h=5, templateWindowSize=7, searchWindowSize=21)
         steps['denoised'] = denoised.copy()
 
         # 흐림 보정 (약하게 또는 선택적으로)
-        # deblurred = self.blur_corrector.correct(denoised.copy())
-        # steps['deblurred'] = deblurred.copy()
+        deblurred = self.blur_corrector.correct(denoised.copy())
+        steps['deblurred'] = deblurred.copy()
         # current_for_blur = denoised # 만약 deblurred를 다음 단계에 쓴다면 current_for_blur = deblurred
 
-        # 원근 보정 (선택적으로)
-        # warped = self.perspective_corrector.correct(current_for_blur.copy()) # 이전 단계 결과 사용
-        # steps['warped'] = warped.copy()
-        # current_for_normalize = warped
+        # 4. 원근 보정
+        warped = self.perspective_corrector.correct(deblurred.copy())
+        # 보정 결과가 유효한지 확인
+        if warped is not None and warped.shape[0] > 10 and warped.shape[1] > 30:
+            perspective_fixed = warped
+        else:
+            perspective_fixed = deblurred.copy()
+        steps['perspective_corrected'] = perspective_fixed.copy()
 
+        # 5. 정규화 (리사이즈)
         # 여기서는 단순화된 파이프라인으로 시각화
         # 원근/흐림보정은 기본 비활성화이므로, 이 시각화에서는 생략하거나 조건부로 추가
         normalized = self.normalizer.normalize(denoised.copy()) # denoised 결과를 정규화
         steps['normalized'] = normalized.copy()
 
+        # 대비 향상
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         enhanced = clahe.apply(normalized.copy())
         steps['enhanced_clahe'] = enhanced.copy()
 
-        # 최종 결과 (process 메서드의 기본 설정과 유사하게)
-        final_processed_image = self.process(image.copy(), perform_blur_correction=False, perform_perspective_correction=False)
-        steps['final_easyocr_input'] = final_processed_image
+        # 최종 전처리 결과에 기울기 보정까지 적용되도록 설정
+        final_processed_image = self.process(
+            image.copy(),
+            perform_blur_correction=True,
+            perform_perspective_correction=True,
+            perform_denoising=True,
+            perform_normalization=True,
+            perform_enhancement=True
+        )
+
+        steps['final_easyocr_input'] = final_processed_image  # EasyOCR 입력용
+
 
         return steps
