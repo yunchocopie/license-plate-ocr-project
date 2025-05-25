@@ -66,15 +66,33 @@ def main():
             #process_video(video_file, vehicle_detector, plate_detector, image_processor, ocr_engine)
 
 def process_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode):
+
+    """
+    A. 차량 감지 후 번호판 감지
+        1. 전체 이미지에서 차량 찾기
+        2. 차량 내부에서 번호판 찾기
+        => 전체 이미지 -> 차량 탐지 -> 차량 이미지 안에서 번호판 탐지 -> OCR
+
+    B. 직접 번호판 감지
+        1. 바로 번호판만 찾기 (차량 잘림 없이 나온 사진이 아니어도 잘 동작 가능)
+        => 전체 이미지 -> 번호판 탐지 -> OCR (차량 탐지 X)
+
+    C. 자동 감지
+        1. 전체 이미지에서 번호판 직접 찾기
+        2. 번호판 감지 실패시 차량 감지 -> 번호판 감지
+        => 번호판 감지 -> 실패시 차량 감지 -> 번호판 감지 -> OCR
+    """
+
     # 이미지 로드 및 처리
     image = Image.open(image_file)
-    image_np = np.array(image)
+    image_np = np.array(image) # 입력한 이미지 배열 변환
     
     # 처리 시작 시간
     start_time = time.time()
     
     results = []
-    
+
+    # 감지 모드 분기 처리
     if detection_mode == "차량 감지 후 번호판 감지":
         # 차량 감지
         vehicle_boxes = vehicle_detector.detect(image_np)
