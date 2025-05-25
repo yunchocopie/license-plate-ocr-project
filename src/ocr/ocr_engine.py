@@ -23,7 +23,7 @@ class OCREngine:
         # EasyOCR은 문자열 리스트를 허용 문자로 받음
         self.allowed_chars = allowed_chars if allowed_chars is not None else config.OCR_ALLOWED_CHARS
         self.model_storage_directory = model_storage_directory if model_storage_directory is not None else config.MODEL_DIR
-        self.download_enabled = download_enabled if download_enabled is not None else True # 기본값 True로 설정
+        self.download_enabled = download_enabled if download_enabled is not None else config.DOWNLOAD_ENABLED
 
         self.reader = easyocr.Reader(
             self.languages,
@@ -78,7 +78,8 @@ class OCREngine:
         processed_text = self.post_processor.process(text)
         return processed_text
 
-    def recognize_with_confidence(self, image, min_confidence=0.3):
+    def recognize_with_confidence(self, image, min_confidence=None):
+        min_confidence = min_confidence if min_confidence is not None else config.MIN_OCR_CONFIDENCE
         # (기존 로직과 유사하게, recognize 메서드와 입력 이미지 처리 동일하게)
         if image is None or image.size == 0:
             return "", 0.0
