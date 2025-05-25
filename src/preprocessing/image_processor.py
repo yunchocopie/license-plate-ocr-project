@@ -163,8 +163,17 @@ class ImageProcessor:
         enhanced = clahe.apply(normalized.copy())
         steps['enhanced_clahe'] = enhanced.copy()
 
-        # 최종 결과 (process 메서드의 기본 설정과 유사하게)
-        final_processed_image = self.process(image.copy(), perform_blur_correction=False, perform_perspective_correction=False)
-        steps['final_easyocr_input'] = final_processed_image
+        # 최종 전처리 결과에 기울기 보정까지 적용되도록 설정
+        final_processed_image = self.process(
+            image.copy(),
+            perform_blur_correction=True,
+            perform_perspective_correction=True,
+            perform_denoising=True,
+            perform_normalization=True,
+            perform_enhancement=True
+        )
+
+        steps['final_easyocr_input'] = final_processed_image  # EasyOCR 입력용
+
 
         return steps
