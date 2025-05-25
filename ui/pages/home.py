@@ -13,7 +13,7 @@ from src.detection.vehicle_detector import VehicleDetector
 from src.detection.plate_detector import PlateDetector
 from src.preprocessing.image_processor import ImageProcessor
 from src.ocr.ocr_engine import OCREngine
-from src.utils.visualization import visualize_results
+from src.utils.visualization import visualize_results, visualize_vehicle_detection, visualize_plate_detection
 
 """
 홈 페이지 모듈
@@ -120,7 +120,7 @@ def process_image_pipeline(image, vehicle_detector, plate_detector, image_proces
     
     # 차량 감지 결과 시각화
     if options["show_vehicle_detection"]:
-        vehicle_image = vehicle_detector.visualize(image.copy(), vehicle_boxes)
+        vehicle_image = visualize_vehicle_detection(image.copy(), vehicle_boxes)
         processed_images["차량 감지"] = cv2.cvtColor(vehicle_image, cv2.COLOR_BGR2RGB)
     
     # 결과 저장 변수
@@ -137,7 +137,7 @@ def process_image_pipeline(image, vehicle_detector, plate_detector, image_proces
         
         # 번호판 감지 결과 시각화
         if options["show_plate_detection"] and plate_boxes:
-            plate_image = plate_detector.visualize(vehicle_image.copy(), plate_boxes)
+            plate_image = visualize_plate_detection(vehicle_image.copy(), plate_boxes)
             plate_image_key = f"번호판 감지 (차량 {len(results)+1})"
             processed_images[plate_image_key] = cv2.cvtColor(plate_image, cv2.COLOR_BGR2RGB)
         

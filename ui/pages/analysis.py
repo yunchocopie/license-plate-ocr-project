@@ -13,7 +13,7 @@ from src.detection.plate_detector import PlateDetector
 from src.preprocessing.image_processor import ImageProcessor
 from src.ocr.ocr_engine import OCREngine
 from src.utils.metrics import calculate_text_similarity, benchmark_pipeline
-from src.utils.visualization import visualize_preprocessing_steps
+from src.utils.visualization import visualize_preprocessing_steps, visualize_vehicle_detection
 import config
 
 """
@@ -425,7 +425,7 @@ def render_batch_processing_tab(settings):
                 # 결과 이미지 저장
                 if save_images and file_results:
                     # 결과 시각화
-                    result_image = vehicle_detector.visualize(image.copy(), [r["vehicle_box"] for r in file_results])
+                    result_image = visualize_vehicle_detection(image.copy(), [r["vehicle_box"] for r in file_results])
                     
                     # 파일명 생성
                     base_name = os.path.splitext(os.path.basename(image_file))[0]

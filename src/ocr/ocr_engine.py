@@ -1,8 +1,6 @@
-
 import cv2
 import numpy as np
 import easyocr
-import re
 import torch
 from .text_postprocess import TextPostProcessor # 상대 경로 유지
 import config # config 파일 임포트
@@ -32,51 +30,6 @@ class OCREngine:
             download_enabled=self.download_enabled
         )
         self.post_processor = TextPostProcessor(allowed_chars=self.allowed_chars)
-
-
-    def recognize(self, image, detail=0): # 입력은 ImageProcessor에서 처리된 그레이스케일 이미지로 가정
-        if image is None or image.size == 0:
-            return ""
-
-        # 입력 이미지가 uint8 타입인지 확인, 아니면 변환
-        if image.dtype != np.uint8:
-            print(f"OCREngine: Input image dtype is {image.dtype}, converting to uint8.")
-            if np.max(image) <= 1.0 and (image.dtype == np.float32 or image.dtype == np.float64) :
-                processed_image = (image * 255).astype(np.uint8)
-            else:
-                processed_image = np.clip(image, 0, 255).astype(np.uint8)
-        else:
-            processed_image = image
-
-        # EasyOCR의 readtext 파라미터 추가 가능 (예: paragraph=False)
-        try:
-            results = self.reader.readtext(processed_image, detail=detail, allowlist=self.allowed_chars, paragraph=False)
-        except Exception as e:
-            print(f"OCR Error: {e}")
-            return ""
-
-        if not results:
-            return ""
-
-        # 결과 처리 로직은 기존과 유사하게 유지
-        if detail == 0:
-            if isinstance(results, list) and all(isinstance(item, str) for item in results):
-                text = " ".join(results)
-            elif isinstance(results, list) and all(isinstance(item, tuple) and len(item) > 1 for item in results): # [(bbox, text, conf), ...]
-                 text = " ".join([res[1] for res in results])
-            elif isinstance(results, str):
-                 text = results
-            else: # 예상치 못한 결과 형태
-                 print(f"Unexpected OCR result format: {results}")
-                 text = ""
-        else: # detail=1
-            # 신뢰도 기준으로 정렬 (높은 것이 먼저 오도록)
-            # EasyOCR 결과는 이미 정렬되어 있을 수 있으나, 명시적으로 정렬
-            # results.sort(key=lambda x: x[0][0][0]) # X 좌표 기준으로 정렬 (읽는 순서)
-            text = " ".join([result[1] for result in results])
-
-        processed_text = self.post_processor.process(text)
-        return processed_text
 
     def recognize_with_confidence(self, image, min_confidence=None):
         min_confidence = min_confidence if min_confidence is not None else config.MIN_OCR_CONFIDENCE
@@ -123,6 +76,3 @@ class OCREngine:
         text, confidence = self.recognize_with_confidence(image)
         plate_text = self.post_processor.format_korean_license_plate(text)
         return plate_text
-
-    # test_preprocess_variations 메서드는 디버깅에 유용하므로 유지하고,
-    # ImageProcessor의 다양한 옵션을 테스트하도록 확장 가능

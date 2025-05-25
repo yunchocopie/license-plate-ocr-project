@@ -94,7 +94,7 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 processed_plate = image_processor.process(plate_image)
                 
                 # OCR 처리
-                plate_text = ocr_engine.recognize(processed_plate)
+                plate_text, confidence = ocr_engine.recognize_with_confidence(processed_plate)
                 
                 # 결과 저장
                 global_plate_box = [
@@ -122,7 +122,7 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
             processed_plate = image_processor.process(plate_image)
             
             # OCR 처리
-            plate_text = ocr_engine.recognize(processed_plate)
+            plate_text, confidence = ocr_engine.recognize_with_confidence(processed_plate)
             
             # 결과 저장
             results.append({
@@ -144,7 +144,7 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 processed_plate = image_processor.process(plate_image)
                 
                 # OCR 처리
-                plate_text = ocr_engine.recognize(processed_plate)
+                plate_text, confidence = ocr_engine.recognize_with_confidence(processed_plate)
                 
                 # 결과 저장
                 results.append({
@@ -171,7 +171,7 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                     processed_plate = image_processor.process(plate_image)
                     
                     # OCR 처리
-                    plate_text = ocr_engine.recognize(processed_plate)
+                    plate_text, confidence = ocr_engine.recognize_with_confidence(processed_plate)
                     
                     # 결과 저장
                     global_plate_box = [

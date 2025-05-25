@@ -1,5 +1,4 @@
 import re
-import string
 import config
 
 """
@@ -171,43 +170,3 @@ class TextPostProcessor:
         else:
             # 패턴 매칭 실패 시 그대로 반환
             return processed
-    
-    def correct_with_rules(self, text):
-        """
-        특정 규칙에 기반한 텍스트 교정
-        
-        Args:
-            text (str): 입력 텍스트
-            
-        Returns:
-            str: 규칙에 따라 교정된 텍스트
-        """
-        if not text:
-            return ""
-        
-        # 번호판 텍스트에서 일반적으로 사용되지 않는 문자 교체
-        replacements = {
-            'Q': '0',  # Q는 번호판에 거의 사용되지 않음
-            'D': '0',  # D와 0 혼동
-            'U': '0',  # U와 0 혼동
-            'L': '1',  # L과 1 혼동
-            'J': '1',  # J와 1 혼동
-        }
-        
-        for old, new in replacements.items():
-            text = text.replace(old, new)
-        
-        # 한글 부분 (가, 나, 다, ...) 교정
-        # 일반적으로 번호판의 한글은 특정 위치에 있음
-        hangul_positions = []
-        for i, c in enumerate(text):
-            if '가' <= c <= '힣':
-                hangul_positions.append(i)
-        
-        # 한글이 여러 개 인식된 경우, 가장 신뢰할 수 있는 위치 선택
-        if len(hangul_positions) > 1:
-            # 번호판 형식 분석으로 가장 적절한 한글 위치 선택
-            # (예: 12X3456 형식이면 X 위치의 한글이 맞을 가능성이 높음)
-            pass
-        
-        return text

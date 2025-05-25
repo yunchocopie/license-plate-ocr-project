@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 from ultralytics import YOLO
-import os
 import torch
 import config
 
@@ -68,22 +67,3 @@ class VehicleDetector:
                     boxes.append([x1, y1, x2, y2])
         
         return boxes
-    
-    def visualize(self, image, boxes):
-        """
-        이미지에 검출된 차량의 바운딩 박스 시각화
-        
-        Args:
-            image (numpy.ndarray): BGR 형식의 이미지
-            boxes (list): 바운딩 박스 목록 [x1, y1, x2, y2]
-            
-        Returns:
-            numpy.ndarray: 바운딩 박스가 그려진 이미지
-        """
-        vis_img = image.copy()
-        for box in boxes:
-            x1, y1, x2, y2 = box
-            cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(vis_img, "Vehicle", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-        
-        return vis_img

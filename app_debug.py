@@ -69,20 +69,10 @@ if uploaded_file is not None:
                     
                     st.write(f"번호판 {pidx+1}")
                     
-                    # 품질 평가 (1단계 기능)
-                    quality_start = time.time()
-                    try:
-                        if hasattr(image_processor, 'assess_image_quality'):
-                            quality_metrics, processing_level = image_processor.assess_image_quality(plate_img)
-                            st.write(f"품질 점수: {quality_metrics['overall_score']:.1f}/100")
-                            st.write(f"처리 수준: {processing_level.upper()}")
-                        else:
-                            processing_level = 'full'
-                            quality_metrics = {'overall_score': 0}
-                    except:
-                        processing_level = 'full'
-                        quality_metrics = {'overall_score': 0}
-                    quality_time = time.time() - quality_start
+                    # 품질 평가 (미구현 기능)
+                    processing_level = 'full'
+                    quality_metrics = {'overall_score': 0}
+                    quality_time = 0
                     
                     # 전처리
                     preprocess_start = time.time()
@@ -119,7 +109,6 @@ if uploaded_file is not None:
                     with col3:
                         st.write(f"텍스트: **{text}**")
                         st.write(f"신뢰도: {conf:.2f}")
-                        st.write(f"품질평가: {quality_time*1000:.1f}ms")
                         st.write(f"전처리: {preprocess_time*1000:.1f}ms")
                         st.write(f"OCR: {ocr_time*1000:.1f}ms")
                     
@@ -151,18 +140,10 @@ if uploaded_file is not None:
                 
                 st.write(f"번호판 {pidx+1}")
                 
-                # 품질 평가
-                quality_start = time.time()
-                try:
-                    if hasattr(image_processor, 'assess_image_quality'):
-                        quality_metrics, processing_level = image_processor.assess_image_quality(plate_img)
-                    else:
-                        processing_level = 'full'
-                        quality_metrics = {'overall_score': 0}
-                except:
-                    processing_level = 'full'
-                    quality_metrics = {'overall_score': 0}
-                quality_time = time.time() - quality_start
+                # 품질 평가 (미구현 기능)
+                processing_level = 'full'
+                quality_metrics = {'overall_score': 0}
+                quality_time = 0
                 
                 # 전처리
                 preprocess_start = time.time()
@@ -199,7 +180,6 @@ if uploaded_file is not None:
                 with col3:
                     st.write(f"텍스트: **{text}**")
                     st.write(f"신뢰도: {conf:.2f}")
-                    st.write(f"품질평가: {quality_time*1000:.1f}ms")
                     st.write(f"전처리: {preprocess_time*1000:.1f}ms")
                     st.write(f"OCR: {ocr_time*1000:.1f}ms")
                 
@@ -237,17 +217,6 @@ if uploaded_file is not None:
                 st.write(f"신뢰도: {result['confidence']:.2f}")
             with col4:
                 st.write(f"품질: {result['quality_score']:.1f}")
-        
-        # 처리 수준 통계 (1단계 기능)
-        if any(r.get('processing_level') for r in results):
-            processing_levels = [r['processing_level'] for r in results if r.get('processing_level')]
-            level_counts = {}
-            for level in processing_levels:
-                level_counts[level] = level_counts.get(level, 0) + 1
-            
-            st.subheader("처리 수준 분포")
-            for level, count in level_counts.items():
-                st.write(f"{level.upper()}: {count}개")
     else:
         st.error("번호판을 찾지 못했습니다.")
     
