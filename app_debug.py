@@ -228,3 +228,4 @@ if uploaded_file is not None:
             "결과": results
         }
         st.json(debug_info)
+
