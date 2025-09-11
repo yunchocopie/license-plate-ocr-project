@@ -5,6 +5,7 @@ import torch
 from .text_postprocess import TextPostProcessor # 상대 경로 유지
 from .korean_plate_postprocessor import KoreanPlatePostProcessor # 한국 번호판 전용 후처리기
 from ..classification.plate_classifier import PlateClassifier # 번호판 분류기 추가
+from ..preprocessing.image_processor import ImageProcessor # 고급 이미지 전처리 추가
 import config # config 파일 임포트
 
 class OCREngine:
@@ -34,20 +35,25 @@ class OCREngine:
         self.post_processor = TextPostProcessor(allowed_chars=self.allowed_chars)
         self.korean_postprocessor = KoreanPlatePostProcessor()  # 한국 번호판 전용 후처리기
         self.plate_classifier = PlateClassifier()  # 번호판 분류기 초기화
+        self.image_processor = ImageProcessor()  # 고급 이미지 전처리기 초기화
 
-    def recognize_with_confidence(self, image, min_confidence=None):
+    def recognize_with_confidence(self, image, min_confidence=None, use_advanced_preprocessing=True):
         min_confidence = min_confidence if min_confidence is not None else config.MIN_OCR_CONFIDENCE
         # (기존 로직과 유사하게, recognize 메서드와 입력 이미지 처리 동일하게)
         if image is None or image.size == 0:
             return "", 0.0
 
-        if image.dtype != np.uint8:
-            if np.max(image) <= 1.0 and (image.dtype == np.float32 or image.dtype == np.float64) :
-                processed_image = (image * 255).astype(np.uint8)
-            else:
-                processed_image = np.clip(image, 0, 255).astype(np.uint8)
+        # 고급 전처리 적용 (자동 최적화)
+        if use_advanced_preprocessing:
+            processed_image = self.image_processor.auto_enhance(image)
         else:
-            processed_image = image
+            if image.dtype != np.uint8:
+                if np.max(image) <= 1.0 and (image.dtype == np.float32 or image.dtype == np.float64) :
+                    processed_image = (image * 255).astype(np.uint8)
+                else:
+                    processed_image = np.clip(image, 0, 255).astype(np.uint8)
+            else:
+                processed_image = image
 
         try:
             results = self.reader.readtext(processed_image, detail=1, allowlist=self.allowed_chars, paragraph=False)
@@ -74,32 +80,53 @@ class OCREngine:
         processed_text = self.post_processor.process(combined_text)
         return processed_text, avg_confidence
 
-    def recognize_korean_license_plate(self, image):
+    def recognize_korean_license_plate(self, image, use_advanced_preprocessing=True):
         # 이 함수는 recognize_with_confidence를 사용하므로 별도 수정은 적음
         # 다만, TextPostProcessor의 format_korean_license_plate가 중요
-        text, confidence = self.recognize_with_confidence(image)
+        text, confidence = self.recognize_with_confidence(image, use_advanced_preprocessing=use_advanced_preprocessing)
         plate_text = self.post_processor.format_korean_license_plate(text)
         return plate_text
     
-    def recognize_with_classification(self, image, min_confidence=None):
+    def recognize_with_classification(self, image, min_confidence=None, preprocessing_mode='auto'):
         """
-        번호판 인식과 동시에 타입 분류 수행
+        번호판 인식과 동시에 타입 분류 수행 (고급 전처리 포함)
         
         Args:
             image: 번호판 이미지 (numpy array)
             min_confidence: 최소 OCR 신뢰도
+            preprocessing_mode: 'auto', 'fast', 'balanced', 'high_quality', 'off'
             
         Returns:
             dict: {
                 'text': 인식된 텍스트,
                 'confidence': OCR 신뢰도,
-                'classification': 분류 결과
+                'classification': 분류 결과,
+                'validation': 유효성 검사 결과,
+                'preprocessing_info': 전처리 정보
             }
         """
-        # OCR 수행
-        text, confidence = self.recognize_with_confidence(image, min_confidence)
+        # 고급 전처리 적용
+        preprocessing_info = {}
+        if preprocessing_mode == 'auto':
+            enhanced_image = self.image_processor.auto_enhance(image)
+            preprocessing_info['mode'] = 'auto_enhanced'
+        elif preprocessing_mode in ['fast', 'balanced', 'high_quality']:
+            result = self.image_processor.process_advanced(image, quality_mode=preprocessing_mode)
+            enhanced_image = result['processed_image']
+            preprocessing_info = {
+                'mode': preprocessing_mode,
+                'analysis': result.get('analysis', {}),
+                'quality_metrics': result.get('quality_metrics', {}),
+                'processing_steps': result.get('processing_steps', [])
+            }
+        else:  # preprocessing_mode == 'off'
+            enhanced_image = image
+            preprocessing_info['mode'] = 'disabled'
         
-        # 번호판 분류 수행
+        # OCR 수행 (전처리된 이미지 사용)
+        text, confidence = self.recognize_with_confidence(enhanced_image, min_confidence, use_advanced_preprocessing=False)
+        
+        # 번호판 분류 수행 (원본 이미지 사용 - 색상 분석을 위해)
         classification = self.plate_classifier.classify_plate(image, text)
         
         # 한국 번호판 전용 후처리 적용
@@ -112,7 +139,8 @@ class OCREngine:
             'text': processed_text,
             'confidence': confidence,
             'classification': classification,
-            'validation': validation
+            'validation': validation,
+            'preprocessing_info': preprocessing_info
         }
     
     def _post_process_by_type(self, text, plate_type):

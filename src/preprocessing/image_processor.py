@@ -3,6 +3,7 @@ import numpy as np
 from .blur_correction import BlurCorrection
 from .perspective import PerspectiveCorrection
 from .normalize import Normalize
+from .advanced_enhancement import AdvancedImageProcessor
 import config
 
 """
@@ -22,6 +23,7 @@ class ImageProcessor:
         )
         self.perspective_corrector = PerspectiveCorrection()
         self.normalizer = Normalize(target_size=config.PLATE_SIZE)
+        self.advanced_processor = AdvancedImageProcessor()  # 고급 전처리 프로세서
 
     def process(self, image,
                 perform_denoising=True,
@@ -177,3 +179,112 @@ class ImageProcessor:
 
 
         return steps
+    
+    def process_advanced(self, image, quality_mode: str = 'balanced') -> dict:
+        """
+        고급 전처리 파이프라인 (PRD 요구사항 적용)
+        
+        Args:
+            image: 입력 번호판 이미지
+            quality_mode: 'fast', 'balanced', 'high_quality' 중 선택
+            
+        Returns:
+            dict: 처리된 이미지와 분석 정보
+        """
+        if image is None or image.size == 0:
+            return {
+                'processed_image': np.zeros(config.PLATE_SIZE[::-1], dtype=np.uint8),
+                'analysis': {},
+                'processing_steps': [],
+                'quality_metrics': {}
+            }
+        
+        # 품질 모드별 설정
+        if quality_mode == 'fast':
+            settings = {
+                'enable_super_resolution': False,
+                'enable_deblurring': True,
+                'enable_contrast_enhancement': True,
+                'enable_illumination_normalization': True
+            }
+        elif quality_mode == 'high_quality':
+            settings = {
+                'enable_super_resolution': True,
+                'enable_deblurring': True,
+                'enable_contrast_enhancement': True,
+                'enable_illumination_normalization': True
+            }
+        else:  # balanced
+            settings = {
+                'enable_super_resolution': True,
+                'enable_deblurring': True,
+                'enable_contrast_enhancement': True,
+                'enable_illumination_normalization': False  # 로컬 환경에서 성능 고려
+            }
+        
+        # 고급 전처리 실행
+        result = self.advanced_processor.process_advanced(image, **settings)
+        
+        # 기본 정규화 추가 적용
+        if result['processed_image'] is not None:
+            final_image = self.normalizer.normalize(result['processed_image'])
+            result['processed_image'] = final_image
+            
+            # 품질 메트릭 계산
+            if len(image.shape) == 3:
+                original_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                original_gray = image
+                
+            quality_metrics = self.advanced_processor.get_quality_metrics(
+                original_gray, final_image
+            )
+            result['quality_metrics'] = quality_metrics
+        
+        return result
+    
+    def auto_enhance(self, image) -> np.ndarray:
+        """
+        이미지 상태를 자동 분석하여 최적의 전처리 적용
+        
+        Args:
+            image: 입력 이미지
+            
+        Returns:
+            최적화된 이미지
+        """
+        if image is None or image.size == 0:
+            return np.zeros(config.PLATE_SIZE[::-1], dtype=np.uint8)
+        
+        # 이미지 품질 자동 분석
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+        
+        # 블러 정도 측정
+        blur_measure = cv2.Laplacian(gray, cv2.CV_64F).var()
+        
+        # 대비 측정
+        contrast = np.std(gray)
+        
+        # 해상도 측정
+        h, w = gray.shape
+        resolution_score = h * w
+        
+        # 조건에 따른 모드 선택
+        if blur_measure < 50 and contrast < 30:
+            # 매우 흐리고 대비가 낮음 -> 고품질 모드
+            mode = 'high_quality'
+        elif resolution_score < 2000:
+            # 저해상도 -> 슈퍼해상도 필요
+            mode = 'high_quality'
+        elif blur_measure > 200 and contrast > 50:
+            # 양호한 품질 -> 빠른 모드
+            mode = 'fast'
+        else:
+            # 일반적인 경우 -> 균형 모드
+            mode = 'balanced'
+        
+        result = self.process_advanced(image, quality_mode=mode)
+        return result['processed_image']

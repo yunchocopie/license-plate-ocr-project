@@ -34,11 +34,28 @@ def main():
         "자동 감지 모드(권장)"
     ], index=2)
     
-    # 모델 초기화
+    # 전처리 모드 선택
+    preprocessing_mode = st.sidebar.selectbox("이미지 전처리 모드", [
+        "auto", "high_quality", "balanced", "fast", "off"
+    ], index=0, help="auto: 자동 최적화, high_quality: 최고품질, balanced: 균형, fast: 빠른처리, off: 전처리 비활성화")
+    
+    # 전처리 상세 옵션 (고급 사용자용)
+    with st.sidebar.expander("고급 전처리 옵션"):
+        show_preprocessing_info = st.checkbox("전처리 정보 표시", value=False)
+        show_preprocessing_steps = st.checkbox("처리 단계 표시", value=False)
+    
+    # 모델 초기화 (한국 번호판 최적화 적용)
     vehicle_detector = VehicleDetector()
-    plate_detector = PlateDetector()
+    from src.detection.plate_detector import create_optimized_plate_detector
+    plate_detector = create_optimized_plate_detector()  # 한국 번호판 최적화 버전
     image_processor = ImageProcessor()
     ocr_engine = OCREngine()
+    
+    # 시스템 최적화 정보 표시
+    if hasattr(plate_detector, 'get_system_recommendations'):
+        with st.sidebar.expander("시스템 최적화 정보"):
+            recommendations = plate_detector.get_system_recommendations()
+            st.text(recommendations)
     
     if input_type == "이미지 업로드":
         # 이미지 업로드 로직
@@ -46,7 +63,7 @@ def main():
         
     if uploaded_file is not None:
             # 이미지 처리 및 결과 표시
-            process_image(uploaded_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode)
+            process_image(uploaded_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps)
             
     elif input_type == "카메라 촬영":
         # 카메라 촬영 로직
@@ -54,7 +71,7 @@ def main():
         
         if camera_input is not None:
             # 이미지 처리 및 결과 표시
-            process_image(camera_input, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode)
+            process_image(camera_input, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps)
             
     elif input_type == "비디오 업로드":
         # 비디오 업로드 로직
@@ -65,7 +82,7 @@ def main():
             st.warning("비디오 처리 기능은 현재 개발 중입니다.")
             #process_video(video_file, vehicle_detector, plate_detector, image_processor, ocr_engine)
 
-def process_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode):
+def process_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False):
 
     """
     A. 차량 감지 후 번호판 감지
@@ -111,11 +128,13 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 # 번호판 전처리
                 processed_plate = image_processor.process(plate_image)
                 
-                # OCR 처리 및 분류
-                ocr_result = ocr_engine.recognize_with_classification(processed_plate)
+                # OCR 처리 및 분류 (고급 전처리 적용)
+                ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
                 plate_text = ocr_result['text']
                 confidence = ocr_result['confidence']
                 classification = ocr_result['classification']
+                validation = ocr_result.get('validation', {})
+                preprocessing_info = ocr_result.get('preprocessing_info', {})
                 
                 # 결과 저장
                 global_plate_box = [
@@ -130,7 +149,9 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                     "plate_box": global_plate_box,
                     "plate_text": plate_text,
                     "confidence": confidence,
-                    "classification": classification
+                    "classification": classification,
+                    "validation": validation,
+                    "preprocessing_info": preprocessing_info
                 })
     
     elif detection_mode == "직접 번호판 감지":
@@ -156,7 +177,9 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 "plate_box": plate_box,
                 "plate_text": plate_text,
                 "confidence": confidence,
-                "classification": classification
+                "classification": classification,
+                "validation": validation,
+                "preprocessing_info": preprocessing_info
             })
     
     else:  # 자동 감지 모드
@@ -171,11 +194,13 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 # 번호판 전처리
                 processed_plate = image_processor.process(plate_image)
                 
-                # OCR 처리 및 분류
-                ocr_result = ocr_engine.recognize_with_classification(processed_plate)
+                # OCR 처리 및 분류 (고급 전처리 적용)
+                ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
                 plate_text = ocr_result['text']
                 confidence = ocr_result['confidence']
                 classification = ocr_result['classification']
+                validation = ocr_result.get('validation', {})
+                preprocessing_info = ocr_result.get('preprocessing_info', {})
                 
                 # 결과 저장
                 results.append({
@@ -183,7 +208,9 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                     "plate_box": plate_box,
                     "plate_text": plate_text,
                     "confidence": confidence,
-                    "classification": classification
+                    "classification": classification,
+                    "validation": validation,
+                    "preprocessing_info": preprocessing_info
                 })
         else:  # 번호판이 직접 감지되지 않으면 차량 감지 후 번호판 감지 시도
             # 차량 감지
@@ -222,7 +249,9 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                         "plate_box": global_plate_box,
                         "plate_text": plate_text,
                         "confidence": confidence,
-                        "classification": classification
+                        "classification": classification,
+                        "validation": validation,
+                        "preprocessing_info": preprocessing_info
                     })
     
     # 처리 종료 시간
@@ -273,13 +302,82 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                     st.write(f"**분류 신뢰도**: {result['classification']['confidence']:.2f}")
         
         st.success(f"{len(results)}개의 번호판이 감지되었습니다.")
+        
+        # 전처리 정보 표시
+        if show_preprocessing_info and results:
+            st.subheader("이미지 전처리 정보")
+            for idx, result in enumerate(results):
+                preprocessing_info = result.get('preprocessing_info', {})
+                if preprocessing_info:
+                    with st.expander(f"번호판 {idx+1} 전처리 상세"):
+                        st.write(f"**전처리 모드**: {preprocessing_info.get('mode', 'unknown')}")
+                        
+                        # 품질 메트릭 표시
+                        quality_metrics = preprocessing_info.get('quality_metrics', {})
+                        if quality_metrics:
+                            st.write("**품질 메트릭**:")
+                            for metric_name, metric_value in quality_metrics.items():
+                                if isinstance(metric_value, (int, float)):
+                                    st.write(f"  - {metric_name}: {metric_value:.3f}")
+                        
+                        # 처리 단계 표시
+                        if show_preprocessing_steps:
+                            processing_steps = preprocessing_info.get('processing_steps', [])
+                            if processing_steps:
+                                st.write("**처리 단계**:")
+                                for step in processing_steps:
+                                    st.write(f"  - {step}")
     else:
         # 결과 표시
         st.subheader("원본 이미지")
         st.image(image, use_column_width=True)
         st.warning("번호판이 감지되지 않았습니다.")
     
-    st.write(f"처리 시간: {processing_time:.2f}초")
+    # 성능 정보 표시
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("처리 시간", f"{processing_time:.2f}초")
+    with col2:
+        st.metric("전처리 모드", preprocessing_mode)
+    with col3:
+        if results:
+            avg_confidence = sum([r['confidence'] for r in results]) / len(results)
+            st.metric("평균 OCR 신뢰도", f"{avg_confidence:.2f}")
+        else:
+            st.metric("평균 OCR 신뢰도", "N/A")
+    with col4:
+        # 번호판 검출 성능 정보
+        if hasattr(plate_detector, 'get_performance_stats'):
+            perf_stats = plate_detector.get_performance_stats()
+            estimated_fps = perf_stats.get('estimated_fps', 0)
+            st.metric("예상 FPS", f"{estimated_fps:.1f}")
+        else:
+            st.metric("예상 FPS", "N/A")
+    
+    # 상세 성능 정보 (선택적 표시)
+    if show_preprocessing_info and hasattr(plate_detector, 'get_performance_stats'):
+        st.subheader("검출 성능 상세")
+        perf_stats = plate_detector.get_performance_stats()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**검출 통계**")
+            st.write(f"총 검출 수: {perf_stats.get('total_detections', 0)}")
+            st.write(f"평균 추론 시간: {perf_stats.get('avg_inference_time', 0):.3f}초")
+            
+        with col2:
+            optimization_info = perf_stats.get('optimization_info', {})
+            if optimization_info.get('korean_optimization', False):
+                st.write("**최적화 정보**")
+                st.write("✅ 한국 번호판 최적화 활성화")
+                optimal_config = optimization_info.get('optimal_config', {})
+                if optimal_config:
+                    st.write(f"모델 크기: {optimal_config.get('model_size', 'N/A')}")
+                    st.write(f"배치 크기: {optimal_config.get('batch_size', 'N/A')}")
+                    st.write(f"이미지 크기: {optimal_config.get('imgsz', 'N/A')}")
+            else:
+                st.write("**최적화 정보**")
+                st.write("⚠️ 기본 모드 (최적화 미적용)")
 
 # def process_video(video_file, vehicle_detector, plate_detector, image_processor, ocr_engine):
 #     # 비디오 처리 로직

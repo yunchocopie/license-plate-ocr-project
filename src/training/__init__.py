@@ -1,0 +1,1 @@
+# Training module for Korean license plate detection
