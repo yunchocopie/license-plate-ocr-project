@@ -25,6 +25,8 @@ streamlit>=1.26.0
 # Utilities
 tqdm>=4.64.0
 PyYAML>=6.0
-scikit-learn>=1.0.0         # for evaluation metrics
+scikit-learn>=1.0.0         # for evaluation metrics and color clustering
 python-Levenshtein>=0.12.0  # for string similarity
 openpyxl>=3.1.5
+webcolors>=1.13.0           # for color name conversion
+psutil>=5.9.0               # for system performance monitoring

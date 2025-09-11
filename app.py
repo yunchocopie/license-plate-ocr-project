@@ -111,8 +111,11 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 # 번호판 전처리
                 processed_plate = image_processor.process(plate_image)
                 
-                # OCR 처리
-                plate_text, confidence = ocr_engine.recognize_with_confidence(processed_plate)
+                # OCR 처리 및 분류
+                ocr_result = ocr_engine.recognize_with_classification(processed_plate)
+                plate_text = ocr_result['text']
+                confidence = ocr_result['confidence']
+                classification = ocr_result['classification']
                 
                 # 결과 저장
                 global_plate_box = [
@@ -125,7 +128,9 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 results.append({
                     "vehicle_box": vehicle_box,
                     "plate_box": global_plate_box,
-                    "plate_text": plate_text
+                    "plate_text": plate_text,
+                    "confidence": confidence,
+                    "classification": classification
                 })
     
     elif detection_mode == "직접 번호판 감지":
@@ -139,14 +144,19 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
             # 번호판 전처리
             processed_plate = image_processor.process(plate_image)
             
-            # OCR 처리
-            plate_text, confidence = ocr_engine.recognize_with_confidence(processed_plate)
+            # OCR 처리 및 분류
+            ocr_result = ocr_engine.recognize_with_classification(processed_plate)
+            plate_text = ocr_result['text']
+            confidence = ocr_result['confidence']
+            classification = ocr_result['classification']
             
             # 결과 저장
             results.append({
                 "vehicle_box": None,  # 차량 박스 정보 없음
                 "plate_box": plate_box,
-                "plate_text": plate_text
+                "plate_text": plate_text,
+                "confidence": confidence,
+                "classification": classification
             })
     
     else:  # 자동 감지 모드
@@ -161,14 +171,19 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 # 번호판 전처리
                 processed_plate = image_processor.process(plate_image)
                 
-                # OCR 처리
-                plate_text, confidence = ocr_engine.recognize_with_confidence(processed_plate)
+                # OCR 처리 및 분류
+                ocr_result = ocr_engine.recognize_with_classification(processed_plate)
+                plate_text = ocr_result['text']
+                confidence = ocr_result['confidence']
+                classification = ocr_result['classification']
                 
                 # 결과 저장
                 results.append({
                     "vehicle_box": None,  # 차량 박스 정보 없음
                     "plate_box": plate_box,
-                    "plate_text": plate_text
+                    "plate_text": plate_text,
+                    "confidence": confidence,
+                    "classification": classification
                 })
         else:  # 번호판이 직접 감지되지 않으면 차량 감지 후 번호판 감지 시도
             # 차량 감지
@@ -188,8 +203,11 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                     # 번호판 전처리
                     processed_plate = image_processor.process(plate_image)
                     
-                    # OCR 처리
-                    plate_text, confidence = ocr_engine.recognize_with_confidence(processed_plate)
+                    # OCR 처리 및 분류
+                    ocr_result = ocr_engine.recognize_with_classification(processed_plate)
+                    plate_text = ocr_result['text']
+                    confidence = ocr_result['confidence']
+                    classification = ocr_result['classification']
                     
                     # 결과 저장
                     global_plate_box = [
@@ -202,7 +220,9 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                     results.append({
                         "vehicle_box": vehicle_box,
                         "plate_box": global_plate_box,
-                        "plate_text": plate_text
+                        "plate_text": plate_text,
+                        "confidence": confidence,
+                        "classification": classification
                     })
     
     # 처리 종료 시간
@@ -226,7 +246,31 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
         # 인식된 번호판 표시
         st.subheader("인식된 번호판")
         for idx, result in enumerate(results):
-            st.write(f"번호판 {idx+1}: {result['plate_text']}")
+            col1, col2, col3 = st.columns([2, 2, 1])
+            
+            with col1:
+                st.write(f"**번호판 {idx+1}**: {result['plate_text']}")
+                # 유효성 검사 결과 표시
+                if 'validation' in result:
+                    validation = result['validation']
+                    if validation['is_valid']:
+                        st.success("✅ 형식 유효")
+                    else:
+                        st.warning(f"⚠️ 형식 오류: {', '.join(validation['errors'])}")
+            
+            with col2:
+                if 'classification' in result:
+                    plate_type = result['classification']['type'].value
+                    confidence = result['classification']['confidence']
+                    bg_color = result['classification']['background_color']
+                    st.write(f"**타입**: {plate_type}")
+                    st.write(f"**배경색**: {bg_color}")
+                
+            with col3:
+                if 'confidence' in result:
+                    st.write(f"**OCR 신뢰도**: {result['confidence']:.2f}")
+                if 'classification' in result:
+                    st.write(f"**분류 신뢰도**: {result['classification']['confidence']:.2f}")
         
         st.success(f"{len(results)}개의 번호판이 감지되었습니다.")
     else:

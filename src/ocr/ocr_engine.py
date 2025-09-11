@@ -3,6 +3,8 @@ import numpy as np
 import easyocr
 import torch
 from .text_postprocess import TextPostProcessor # 상대 경로 유지
+from .korean_plate_postprocessor import KoreanPlatePostProcessor # 한국 번호판 전용 후처리기
+from ..classification.plate_classifier import PlateClassifier # 번호판 분류기 추가
 import config # config 파일 임포트
 
 class OCREngine:
@@ -30,6 +32,8 @@ class OCREngine:
             download_enabled=self.download_enabled
         )
         self.post_processor = TextPostProcessor(allowed_chars=self.allowed_chars)
+        self.korean_postprocessor = KoreanPlatePostProcessor()  # 한국 번호판 전용 후처리기
+        self.plate_classifier = PlateClassifier()  # 번호판 분류기 초기화
 
     def recognize_with_confidence(self, image, min_confidence=None):
         min_confidence = min_confidence if min_confidence is not None else config.MIN_OCR_CONFIDENCE
@@ -76,3 +80,60 @@ class OCREngine:
         text, confidence = self.recognize_with_confidence(image)
         plate_text = self.post_processor.format_korean_license_plate(text)
         return plate_text
+    
+    def recognize_with_classification(self, image, min_confidence=None):
+        """
+        번호판 인식과 동시에 타입 분류 수행
+        
+        Args:
+            image: 번호판 이미지 (numpy array)
+            min_confidence: 최소 OCR 신뢰도
+            
+        Returns:
+            dict: {
+                'text': 인식된 텍스트,
+                'confidence': OCR 신뢰도,
+                'classification': 분류 결과
+            }
+        """
+        # OCR 수행
+        text, confidence = self.recognize_with_confidence(image, min_confidence)
+        
+        # 번호판 분류 수행
+        classification = self.plate_classifier.classify_plate(image, text)
+        
+        # 한국 번호판 전용 후처리 적용
+        processed_text = self.korean_postprocessor.process_by_plate_type(text, classification['type'])
+        
+        # 형식 유효성 검사
+        validation = self.korean_postprocessor.validate_format(processed_text, classification['type'])
+        
+        return {
+            'text': processed_text,
+            'confidence': confidence,
+            'classification': classification,
+            'validation': validation
+        }
+    
+    def _post_process_by_type(self, text, plate_type):
+        """번호판 타입에 따른 추가 후처리"""
+        from ..classification.plate_classifier import PlateType
+        
+        # 기본 후처리
+        processed_text = self.post_processor.format_korean_license_plate(text)
+        
+        # 타입별 추가 처리
+        if plate_type == PlateType.ELECTRIC:
+            # 전기차 번호판: EV 표기 제거
+            processed_text = processed_text.replace('EV', '').strip()
+        elif plate_type == PlateType.DIPLOMATIC:
+            # 외교관용: 외교, 영사 문구 처리
+            processed_text = processed_text.replace('외교', '').replace('영사', '').strip()
+        elif plate_type == PlateType.MILITARY:
+            # 군용: 국, 육, 해, 공, 합 문자 유지
+            pass
+        elif plate_type == PlateType.CONSTRUCTION:
+            # 건설기계: 지역명과 하이픈 처리
+            pass
+        
+        return processed_text

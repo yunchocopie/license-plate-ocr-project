@@ -57,3 +57,5 @@ packages/
 # 프로젝트 내 생성되는 특정 파일
 *.log
 temp/
+
+gitignore_folder/
