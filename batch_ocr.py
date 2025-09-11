@@ -146,6 +146,11 @@ def main():
     parser.add_argument('--system-info', action='store_true', help='시스템 정보 출력')
     parser.add_argument('--no-optimization', action='store_true', help='시스템 최적화 비활성화')
     
+    # 출력 옵션
+    parser.add_argument('--excel-output', action='store_true', help='Excel 종합 보고서 생성')
+    parser.add_argument('--include-images', action='store_true', help='Excel에 이미지 포함 (용량 증가)')
+    parser.add_argument('--no-charts', action='store_true', help='Excel 차트 생성 비활성화')
+    
     args = parser.parse_args()
     
     # 시스템 정보 출력
@@ -254,6 +259,30 @@ def main():
             print(f"\n⚠️ 실패한 파일: {summary.failed_files}개")
             
         print(f"\n결과가 저장되었습니다: {output_dir}")
+        
+        # Excel 출력 (요청시)
+        if args.excel_output:
+            try:
+                print("\n📈 Excel 종합 보고서 생성 중...")
+                excel_file = str(Path(output_dir) / f"comprehensive_report_{int(time.time())}.xlsx")
+                
+                result_file = processor.export_to_excel(
+                    excel_file,
+                    include_images=args.include_images,
+                    include_statistics=True,
+                    include_charts=not args.no_charts,
+                    image_max_size=(120, 90) if args.include_images else None
+                )
+                
+                if result_file:
+                    print(f"✅ Excel 보고서 생성 완료: {result_file}")
+                    file_size = Path(result_file).stat().st_size / (1024 * 1024)
+                    print(f"   파일 크기: {file_size:.2f}MB")
+                else:
+                    print("❌ Excel 보고서 생성 실패")
+                    
+            except Exception as e:
+                print(f"❌ Excel 보고서 생성 중 오류: {e}")
         
         # 성능 권장사항 (verbose 모드)
         if args.verbose and not args.no_optimization:

@@ -19,6 +19,7 @@ from src.ocr.ocr_engine import OCREngine
 from src.utils.visualization import visualize_results
 from src.utils.system_optimizer import SystemOptimizer
 from src.batch.batch_processor import BatchProcessor
+from src.utils.single_excel_helper import create_single_result_excel, OPENPYXL_AVAILABLE
 import config
 
 # 전역 시스템 최적화기
@@ -136,7 +137,48 @@ def main():
         
     if uploaded_file is not None:
             # 이미지 처리 및 결과 표시
-            process_image(uploaded_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps)
+            results = process_image(uploaded_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps)
+            
+            # Excel 다운로드 버튼 추가
+            if results and OPENPYXL_AVAILABLE:
+                st.subheader("💾 결과 다운로드")
+                
+                if st.button("📈 Excel 보고서 다운로드"):
+                    with st.spinner("Excel 파일 생성 중..."):
+                        # 임시 이미지 파일 저장
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                            tmp_file.write(uploaded_file.getvalue())
+                            temp_image_path = tmp_file.name
+                        
+                        # Excel 파일 생성
+                        excel_file = create_single_result_excel(
+                            temp_image_path,
+                            results.get('plates', []),
+                            "single_result.xlsx",
+                            include_image=True,
+                            processing_time=results.get('processing_time', 0),
+                            detection_mode=detection_mode
+                        )
+                        
+                        if excel_file and os.path.exists(excel_file):
+                            with open(excel_file, 'rb') as f:
+                                excel_data = f.read()
+                            
+                            st.download_button(
+                                label="📊 Excel 보고서 다운로드",
+                                data=excel_data,
+                                file_name=f"plate_analysis_{int(time.time())}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                            
+                            # 임시 파일 정리
+                            try:
+                                os.unlink(temp_image_path)
+                                os.unlink(excel_file)
+                            except:
+                                pass
+                        else:
+                            st.error("Excel 파일 생성에 실패했습니다.")
             
     elif input_type == "카메라 촬영":
         # 카메라 촬영 로직
@@ -144,7 +186,49 @@ def main():
         
         if camera_input is not None:
             # 이미지 처리 및 결과 표시
-            process_image(camera_input, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps)
+            results = process_image(camera_input, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps)
+            
+            # Excel 다운로드 버튼 추가
+            if results and OPENPYXL_AVAILABLE:
+                st.subheader("💾 결과 다운로드")
+                
+                if st.button("📈 Excel 보고서 다운로드", key="camera_excel"):
+                    with st.spinner("Excel 파일 생성 중..."):
+                        # 임시 이미지 파일 저장
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                            tmp_file.write(camera_input.getvalue())
+                            temp_image_path = tmp_file.name
+                        
+                        # Excel 파일 생성
+                        excel_file = create_single_result_excel(
+                            temp_image_path,
+                            results.get('plates', []),
+                            "camera_result.xlsx",
+                            include_image=True,
+                            processing_time=results.get('processing_time', 0),
+                            detection_mode=detection_mode
+                        )
+                        
+                        if excel_file and os.path.exists(excel_file):
+                            with open(excel_file, 'rb') as f:
+                                excel_data = f.read()
+                            
+                            st.download_button(
+                                label="📊 Excel 보고서 다운로드",
+                                data=excel_data,
+                                file_name=f"camera_analysis_{int(time.time())}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="camera_excel_download"
+                            )
+                            
+                            # 임시 파일 정리
+                            try:
+                                os.unlink(temp_image_path)
+                                os.unlink(excel_file)
+                            except:
+                                pass
+                        else:
+                            st.error("Excel 파일 생성에 실패했습니다.")
             
     elif input_type == "비디오 업로드":
         # 비디오 업로드 로직
@@ -478,6 +562,15 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 else:
                     st.write("**최적화 정보**")
                     st.write("⚠️ 기본 모드 (최적화 미적용)")
+    
+    # 처리 결과 반환 (Excel 출력용)
+    return {
+        'plates': results,
+        'processing_time': end_time - start_time,
+        'detection_mode': detection_mode,
+        'total_plates': len(results),
+        'success': len(results) > 0
+    }
 
 def process_batch_images(vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode):
     """배치 처리 페이지 구현"""
@@ -681,11 +774,19 @@ def display_batch_results(summary, processing_time, output_dir):
     # 결과 다운로드
     st.subheader("💾 결과 다운로드")
     
-    # JSON 결과 파일 읽기
+    # 결과 파일들 확인
     json_file = Path(output_dir) / "batch_results_detailed.json"
     csv_file = Path(output_dir) / "batch_results_summary.csv"
     
-    col1, col2 = st.columns(2)
+    # Excel 파일 찾기 (세션 ID가 포함된 파일명)
+    excel_files = list(Path(output_dir).glob("batch_results_comprehensive_*.xlsx"))
+    excel_file = excel_files[0] if excel_files else None
+    
+    # 다운로드 버튼 배치 (Excel이 있으면 3열, 없으면 2열)
+    if excel_file:
+        col1, col2, col3 = st.columns(3)
+    else:
+        col1, col2 = st.columns(2)
     
     if json_file.exists():
         with col1:
@@ -709,6 +810,19 @@ def display_batch_results(summary, processing_time, output_dir):
                 data=csv_data,
                 file_name=f"batch_summary_{int(time.time())}.csv",
                 mime="text/csv"
+            )
+    
+    # Excel 파일 다운로드
+    if excel_file and excel_file.exists():
+        with col3:
+            with open(excel_file, 'rb') as f:
+                excel_data = f.read()
+                
+            st.download_button(
+                label="📈 종합 보고서 (Excel)",
+                data=excel_data,
+                file_name=f"comprehensive_report_{int(time.time())}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     
     # 실패한 파일 목록 표시

@@ -21,6 +21,12 @@ from ..ocr.ocr_engine import OCREngine
 from ..utils.system_optimizer import SystemOptimizer
 import config
 
+try:
+    from ..utils.excel_exporter import ExcelExporter
+    EXCEL_EXPORT_AVAILABLE = True
+except ImportError:
+    EXCEL_EXPORT_AVAILABLE = False
+
 """
 배치 이미지 처리 및 일괄 분석 시스템
 
@@ -620,6 +626,131 @@ class BatchProcessor:
         print(f"결과 저장 완료:")
         print(f"  - 상세 결과: {json_file}")
         print(f"  - 요약 CSV: {csv_file}")
+        
+        # Excel 출력 기능이 활성화되어 있는 경우 Excel 파일도 생성
+        if EXCEL_EXPORT_AVAILABLE:
+            self._save_excel_results(output_dir)
+    
+    def _save_excel_results(self, output_dir: str):
+        """Excel 형태로 결과 저장"""
+        try:
+            excel_file = os.path.join(output_dir, f"batch_results_comprehensive_{self.current_session_id}.xlsx")
+            
+            # BatchProcessResult를 ExcelExporter가 예상하는 형태로 변환
+            excel_results = []
+            for result in self.results:
+                plates_data = []
+                
+                # 번호판 정보를 딕셔너리 형태로 변환
+                for i, text in enumerate(result.recognized_texts):
+                    plate_info = {
+                        'text': text,
+                        'confidence': result.ocr_confidences[i] if i < len(result.ocr_confidences) else 0.0,
+                        'type': result.plate_types[i] if i < len(result.plate_types) else 'Unknown',
+                        'color': result.plate_colors[i] if i < len(result.plate_colors) else 'Unknown',
+                        'is_valid': i < result.valid_plates
+                    }
+                    plates_data.append(plate_info)
+                
+                excel_result = {
+                    'file_name': result.file_name,
+                    'file_path': result.file_path,
+                    'success': result.success,
+                    'processing_time': result.processing_time_sec,
+                    'file_size': result.file_size_mb,
+                    'plates': plates_data,
+                    'error': result.error_message
+                }
+                excel_results.append(excel_result)
+            
+            # Excel 출력기 생성 및 보고서 생성
+            exporter = ExcelExporter()
+            exporter.export_batch_results(
+                self.summary,
+                excel_results,
+                excel_file,
+                include_images=True,
+                include_statistics=True,
+                include_charts=True,
+                image_max_size=(100, 75)
+            )
+            
+            print(f"  - 종합 Excel: {excel_file}")
+            
+        except Exception as e:
+            print(f"Excel 출력 중 오류 발생: {e}")
+    
+    def export_to_excel(
+        self,
+        output_path: str,
+        include_images: bool = True,
+        include_statistics: bool = True,
+        include_charts: bool = True,
+        **kwargs
+    ) -> Optional[str]:
+        """처리 결과를 고급 Excel 파일로 출력
+        
+        Args:
+            output_path: 출력 파일 경로
+            include_images: 이미지 포함 여부
+            include_statistics: 통계 시트 포함 여부
+            include_charts: 차트 포함 여부
+            **kwargs: 추가 옵션들
+            
+        Returns:
+            생성된 파일 경로 또는 None (실패 시)
+        """
+        
+        if not EXCEL_EXPORT_AVAILABLE:
+            print("Excel 출력 기능을 사용할 수 없습니다. openpyxl을 설치해주세요.")
+            return None
+        
+        if not self.results or not self.summary:
+            print("내보낼 결과가 없습니다. 먼저 배치 처리를 실행해주세요.")
+            return None
+        
+        try:
+            # 결과 데이터 변환
+            excel_results = []
+            for result in self.results:
+                plates_data = []
+                
+                for i, text in enumerate(result.recognized_texts):
+                    plate_info = {
+                        'text': text,
+                        'confidence': result.ocr_confidences[i] if i < len(result.ocr_confidences) else 0.0,
+                        'type': result.plate_types[i] if i < len(result.plate_types) else 'Unknown',
+                        'color': result.plate_colors[i] if i < len(result.plate_colors) else 'Unknown',
+                        'is_valid': i < result.valid_plates
+                    }
+                    plates_data.append(plate_info)
+                
+                excel_result = {
+                    'file_name': result.file_name,
+                    'file_path': result.file_path,
+                    'success': result.success,
+                    'processing_time': result.processing_time_sec,
+                    'file_size': result.file_size_mb,
+                    'plates': plates_data,
+                    'error': result.error_message
+                }
+                excel_results.append(excel_result)
+            
+            # Excel 출력
+            exporter = ExcelExporter()
+            return exporter.export_batch_results(
+                self.summary,
+                excel_results,
+                output_path,
+                include_images=include_images,
+                include_statistics=include_statistics,
+                include_charts=include_charts,
+                **kwargs
+            )
+            
+        except Exception as e:
+            print(f"Excel 출력 중 오류 발생: {e}")
+            return None
     
     def cancel_processing(self):
         """배치 처리 취소"""
