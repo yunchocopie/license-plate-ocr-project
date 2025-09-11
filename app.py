@@ -5,6 +5,11 @@ import numpy as np
 import time
 import os
 import atexit
+import pandas as pd
+import json
+import tempfile
+import zipfile
+from pathlib import Path
 
 # 내부 모듈 임포트
 from src.detection.vehicle_detector import VehicleDetector
@@ -13,6 +18,7 @@ from src.preprocessing.image_processor import ImageProcessor
 from src.ocr.ocr_engine import OCREngine
 from src.utils.visualization import visualize_results
 from src.utils.system_optimizer import SystemOptimizer
+from src.batch.batch_processor import BatchProcessor
 import config
 
 # 전역 시스템 최적화기
@@ -40,7 +46,7 @@ def main():
     
     # 사이드바 설정
     st.sidebar.title("설정")
-    input_type = st.sidebar.radio("입력 유형", ["이미지 업로드", "카메라 촬영", "비디오 업로드"])
+    input_type = st.sidebar.radio("입력 유형", ["이미지 업로드", "카메라 촬영", "비디오 업로드", "배치 처리"])
     
     # 감지 모드 선택
     detection_mode = st.sidebar.radio("감지 모드", [
@@ -148,6 +154,10 @@ def main():
             # 비디오 처리 및 결과 표시
             st.warning("비디오 처리 기능은 현재 개발 중입니다.")
             #process_video(video_file, vehicle_detector, plate_detector, image_processor, ocr_engine)
+            
+    elif input_type == "배치 처리":
+        # 배치 처리 로직
+        process_batch_images(vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode)
 
 def process_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False):
 
@@ -468,6 +478,252 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 else:
                     st.write("**최적화 정보**")
                     st.write("⚠️ 기본 모드 (최적화 미적용)")
+
+def process_batch_images(vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode):
+    """배치 처리 페이지 구현"""
+    st.header("📦 배치 이미지 처리")
+    st.write("여러 이미지를 한 번에 처리하여 번호판을 인식합니다.")
+    
+    # 배치 처리 설정
+    st.subheader("⚙️ 처리 설정")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        max_workers = st.number_input("동시 처리 수", min_value=1, max_value=16, value=4, 
+                                    help="동시에 처리할 이미지 수 (높을수록 빠르지만 메모리 사용량 증가)")
+        use_multiprocessing = st.checkbox("멀티프로세싱 사용", value=False,
+                                        help="CPU 집약적 작업에 효과적, 메모리 사용량 증가")
+        
+    with col2:
+        chunk_size = st.number_input("청크 크기", min_value=5, max_value=100, value=10,
+                                   help="한 번에 처리할 이미지 묶음 크기")
+        min_confidence = st.slider("최소 신뢰도", min_value=0.1, max_value=1.0, value=0.3, step=0.1,
+                                 help="이 값보다 낮은 신뢰도의 결과는 제외")
+    
+    # 파일 업로드 방식 선택
+    st.subheader("📁 이미지 업로드")
+    upload_method = st.radio("업로드 방식", ["다중 파일 선택", "ZIP 파일 업로드"], horizontal=True)
+    
+    uploaded_files = None
+    
+    if upload_method == "다중 파일 선택":
+        uploaded_files = st.file_uploader(
+            "이미지 파일들을 선택하세요",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=True,
+            help="Ctrl/Cmd + 클릭으로 여러 파일 선택 가능"
+        )
+        
+    elif upload_method == "ZIP 파일 업로드":
+        zip_file = st.file_uploader(
+            "이미지가 포함된 ZIP 파일을 업로드하세요",
+            type=["zip"],
+            help="ZIP 파일 내 이미지 파일들을 자동으로 추출하여 처리"
+        )
+        
+        if zip_file is not None:
+            # ZIP 파일 처리
+            uploaded_files = extract_images_from_zip(zip_file)
+    
+    if uploaded_files and len(uploaded_files) > 0:
+        st.success(f"총 {len(uploaded_files)}개의 이미지가 업로드되었습니다.")
+        
+        # 처리 시작 버튼
+        if st.button("🚀 배치 처리 시작", type="primary"):
+            process_batch_with_progress(
+                uploaded_files, vehicle_detector, plate_detector, 
+                image_processor, ocr_engine, detection_mode, preprocessing_mode,
+                max_workers, use_multiprocessing, chunk_size, min_confidence
+            )
+
+def extract_images_from_zip(zip_file):
+    """ZIP 파일에서 이미지 파일들을 추출"""
+    extracted_files = []
+    
+    try:
+        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+            for file_info in zip_ref.infolist():
+                if file_info.filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    # 파일을 메모리에서 직접 읽기
+                    file_data = zip_ref.read(file_info.filename)
+                    
+                    # Streamlit의 UploadedFile과 유사한 객체 생성
+                    class ZipImageFile:
+                        def __init__(self, data, name):
+                            self.data = data
+                            self.name = name
+                            
+                        def read(self):
+                            return self.data
+                            
+                        def getvalue(self):
+                            return self.data
+                    
+                    extracted_files.append(ZipImageFile(file_data, file_info.filename))
+        
+        st.success(f"ZIP 파일에서 {len(extracted_files)}개의 이미지를 추출했습니다.")
+        
+    except Exception as e:
+        st.error(f"ZIP 파일 처리 중 오류 발생: {str(e)}")
+        return []
+        
+    return extracted_files
+
+def process_batch_with_progress(uploaded_files, vehicle_detector, plate_detector, 
+                              image_processor, ocr_engine, detection_mode, preprocessing_mode,
+                              max_workers, use_multiprocessing, chunk_size, min_confidence):
+    """진행률과 함께 배치 처리 실행"""
+    
+    # 임시 디렉토리 생성
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        input_dir = temp_path / "input"
+        output_dir = temp_path / "output"
+        
+        input_dir.mkdir()
+        output_dir.mkdir()
+        
+        # 업로드된 파일들을 임시 디렉토리에 저장
+        for i, file in enumerate(uploaded_files):
+            file_path = input_dir / f"image_{i:04d}_{file.name}"
+            with open(file_path, 'wb') as f:
+                f.write(file.getvalue())
+        
+        # 배치 프로세서 설정
+        processor = BatchProcessor(max_workers=max_workers, use_multiprocessing=use_multiprocessing)
+        
+        # 처리 설정
+        processor.configure_processing(
+            detection_mode=detection_mode,
+            preprocessing_mode=preprocessing_mode,
+            min_confidence=min_confidence,
+            chunk_size=chunk_size
+        )
+        
+        # 진행률 표시를 위한 컨테이너
+        progress_container = st.container()
+        
+        # 진행률 콜백 함수
+        progress_data = {'processed': 0, 'total': 0}
+        
+        def progress_callback(processed: int, total: int, data: dict):
+            progress_data['processed'] = processed
+            progress_data['total'] = total
+            
+            # 진행률 계산
+            progress_percent = (processed / total * 100) if total > 0 else 0
+            
+            with progress_container:
+                # 진행률 바
+                st.progress(processed / total if total > 0 else 0)
+                
+                # 상세 정보
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("처리 완료", f"{processed}/{total}")
+                with col2:
+                    st.metric("진행률", f"{progress_percent:.1f}%")
+                with col3:
+                    st.metric("현재 청크", f"{data.get('current_chunk_size', 0)}개")
+        
+        processor.set_progress_callback(progress_callback)
+        
+        # 처리 시작
+        start_time = time.time()
+        
+        try:
+            summary = processor.process_directory(str(input_dir), output_dir=str(output_dir))
+            end_time = time.time()
+            
+            # 결과 표시
+            display_batch_results(summary, end_time - start_time, output_dir)
+            
+        except Exception as e:
+            st.error(f"배치 처리 중 오류 발생: {str(e)}")
+
+def display_batch_results(summary, processing_time, output_dir):
+    """배치 처리 결과 표시"""
+    st.success("🎉 배치 처리가 완료되었습니다!")
+    
+    # 처리 통계
+    st.subheader("📊 처리 결과")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("총 처리 파일", f"{summary.processed_files}")
+        
+    with col2:
+        st.metric("성공률", f"{summary.success_rate_percent:.1f}%")
+        
+    with col3:
+        st.metric("처리 시간", f"{processing_time:.1f}초")
+        
+    with col4:
+        st.metric("처리 속도", f"{summary.throughput_files_per_min:.1f}파일/분")
+    
+    if summary.total_plates_detected > 0:
+        st.subheader("🚗 감지된 번호판 정보")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("총 감지된 번호판", f"{summary.total_plates_detected}개")
+            st.metric("유효한 번호판", f"{summary.total_valid_plates}개")
+            
+        with col2:
+            if summary.plate_type_distribution:
+                st.write("**번호판 타입 분포:**")
+                for plate_type, count in sorted(summary.plate_type_distribution.items()):
+                    st.write(f"• {plate_type}: {count}개")
+    
+    # 결과 다운로드
+    st.subheader("💾 결과 다운로드")
+    
+    # JSON 결과 파일 읽기
+    json_file = Path(output_dir) / "batch_results_detailed.json"
+    csv_file = Path(output_dir) / "batch_results_summary.csv"
+    
+    col1, col2 = st.columns(2)
+    
+    if json_file.exists():
+        with col1:
+            with open(json_file, 'r', encoding='utf-8') as f:
+                json_data = f.read()
+            
+            st.download_button(
+                label="📄 상세 결과 (JSON)",
+                data=json_data,
+                file_name=f"batch_results_{int(time.time())}.json",
+                mime="application/json"
+            )
+    
+    if csv_file.exists():
+        with col2:
+            with open(csv_file, 'r', encoding='utf-8') as f:
+                csv_data = f.read()
+                
+            st.download_button(
+                label="📊 요약 결과 (CSV)",
+                data=csv_data,
+                file_name=f"batch_summary_{int(time.time())}.csv",
+                mime="text/csv"
+            )
+    
+    # 실패한 파일 목록 표시
+    if summary.failed_files > 0:
+        with st.expander(f"⚠️ 실패한 파일 ({summary.failed_files}개)"):
+            failed_file = Path(output_dir) / "batch_failed_files.json"
+            if failed_file.exists():
+                with open(failed_file, 'r', encoding='utf-8') as f:
+                    failed_data = json.load(f)
+                
+                for item in failed_data[:10]:  # 최대 10개만 표시
+                    st.write(f"• {item['file_name']}: {item['error']}")
+                
+                if len(failed_data) > 10:
+                    st.write(f"... 및 {len(failed_data) - 10}개 더")
 
 # def process_video(video_file, vehicle_detector, plate_detector, image_processor, ocr_engine):
 #     # 비디오 처리 로직
