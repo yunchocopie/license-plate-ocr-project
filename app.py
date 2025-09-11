@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import time
 import os
+import atexit
 
 # 내부 모듈 임포트
 from src.detection.vehicle_detector import VehicleDetector
@@ -11,7 +12,21 @@ from src.detection.plate_detector import PlateDetector
 from src.preprocessing.image_processor import ImageProcessor
 from src.ocr.ocr_engine import OCREngine
 from src.utils.visualization import visualize_results
+from src.utils.system_optimizer import SystemOptimizer
 import config
+
+# 전역 시스템 최적화기
+@st.cache_resource
+def get_system_optimizer():
+    optimizer = SystemOptimizer(monitoring_interval=10.0)  # 10초 간격
+    optimizer.start_monitoring()
+    
+    # 앱 종료 시 모니터링 중지
+    def cleanup():
+        optimizer.stop_monitoring()
+    atexit.register(cleanup)
+    
+    return optimizer
 
 
 def main():
@@ -44,6 +59,9 @@ def main():
         show_preprocessing_info = st.checkbox("전처리 정보 표시", value=False)
         show_preprocessing_steps = st.checkbox("처리 단계 표시", value=False)
     
+    # 시스템 최적화기 초기화 (전역 캐시 사용)
+    system_optimizer = get_system_optimizer()
+    
     # 모델 초기화 (한국 번호판 최적화 적용)
     vehicle_detector = VehicleDetector()
     from src.detection.plate_detector import create_optimized_plate_detector
@@ -51,9 +69,58 @@ def main():
     image_processor = ImageProcessor()
     ocr_engine = OCREngine()
     
-    # 시스템 최적화 정보 표시
+    # 시스템 최적화 대시보드
+    with st.sidebar.expander("🔧 시스템 최적화", expanded=False):
+        system_report = system_optimizer.get_system_report()
+        
+        # 현재 프로파일 표시
+        current_profile = system_report['current_profile']
+        st.info(f"**현재 모드**: {current_profile['name']} ({current_profile['level']})")
+        
+        # 프로파일 변경 옵션
+        profile_options = ['conservative', 'balanced', 'maximum']
+        current_idx = profile_options.index(current_profile['level'])
+        new_profile = st.selectbox(
+            "성능 모드 변경",
+            profile_options,
+            index=current_idx,
+            format_func=lambda x: {
+                'conservative': '절약 모드 (저사양)',
+                'balanced': '균형 모드 (권장)', 
+                'maximum': '최고 성능 (고사양)'
+            }[x]
+        )
+        
+        if new_profile != current_profile['level']:
+            if st.button("모드 변경 적용"):
+                system_optimizer.switch_profile(new_profile)
+                st.rerun()
+        
+        # 리소스 상태 표시
+        resources = system_report['system_resources']
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("CPU", f"{resources['cpu']['current_usage']:.1f}%")
+            st.metric("메모리", f"{resources['memory']['current_usage_percent']:.1f}%")
+            
+        with col2:
+            if resources['gpu']['available']:
+                st.metric("GPU 메모리", f"{resources['gpu']['usage_percent']:.1f}%")
+            else:
+                st.metric("GPU", "사용불가")
+            st.metric("디스크", f"{resources['disk']['available_gb']:.1f}GB")
+        
+        # 최적화 권장사항
+        recommendations = system_report.get('recommendations', [])
+        if recommendations:
+            st.write("**권장사항:**")
+            for rec in recommendations[:3]:  # 최대 3개만 표시
+                st.write(f"• {rec}")
+    
+    # 기존 번호판 검출기 정보
     if hasattr(plate_detector, 'get_system_recommendations'):
-        with st.sidebar.expander("시스템 최적화 정보"):
+        with st.sidebar.expander("📊 검출 성능 정보"):
             recommendations = plate_detector.get_system_recommendations()
             st.text(recommendations)
     
@@ -355,29 +422,52 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
             st.metric("예상 FPS", "N/A")
     
     # 상세 성능 정보 (선택적 표시)
-    if show_preprocessing_info and hasattr(plate_detector, 'get_performance_stats'):
-        st.subheader("검출 성능 상세")
-        perf_stats = plate_detector.get_performance_stats()
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**검출 통계**")
-            st.write(f"총 검출 수: {perf_stats.get('total_detections', 0)}")
-            st.write(f"평균 추론 시간: {perf_stats.get('avg_inference_time', 0):.3f}초")
+    if show_preprocessing_info:
+        # 시스템 최적화 상세 정보
+        with st.expander("🔧 시스템 최적화 상세"):
+            system_report = system_optimizer.get_system_report()
             
-        with col2:
-            optimization_info = perf_stats.get('optimization_info', {})
-            if optimization_info.get('korean_optimization', False):
-                st.write("**최적화 정보**")
-                st.write("✅ 한국 번호판 최적화 활성화")
-                optimal_config = optimization_info.get('optimal_config', {})
-                if optimal_config:
-                    st.write(f"모델 크기: {optimal_config.get('model_size', 'N/A')}")
-                    st.write(f"배치 크기: {optimal_config.get('batch_size', 'N/A')}")
-                    st.write(f"이미지 크기: {optimal_config.get('imgsz', 'N/A')}")
-            else:
-                st.write("**최적화 정보**")
-                st.write("⚠️ 기본 모드 (최적화 미적용)")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**시스템 리소스**")
+                resources = system_report['system_resources']
+                st.write(f"CPU: {resources['cpu']['current_usage']:.1f}% ({resources['cpu']['total_cores']}코어)")
+                st.write(f"메모리: {resources['memory']['available_mb']:.0f}MB / {resources['memory']['total_mb']:.0f}MB")
+                if resources['gpu']['available']:
+                    st.write(f"GPU: {resources['gpu']['memory_used_mb']:.0f}MB / {resources['gpu']['memory_total_mb']:.0f}MB")
+                
+            with col2:
+                st.write("**성능 프로파일**")
+                profile = system_report['current_profile']
+                st.write(f"모드: {profile['name']}")
+                st.write(f"CPU 코어: {profile['cpu_cores_used']}개")
+                st.write(f"메모리 한도: {profile['max_memory_mb']}MB")
+                st.write(f"우선순위: {profile['priority']}")
+        
+        # 번호판 검출 성능
+        if hasattr(plate_detector, 'get_performance_stats'):
+            st.subheader("검출 성능 상세")
+            perf_stats = plate_detector.get_performance_stats()
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**검출 통계**")
+                st.write(f"총 검출 수: {perf_stats.get('total_detections', 0)}")
+                st.write(f"평균 추론 시간: {perf_stats.get('avg_inference_time', 0):.3f}초")
+                
+            with col2:
+                optimization_info = perf_stats.get('optimization_info', {})
+                if optimization_info.get('korean_optimization', False):
+                    st.write("**최적화 정보**")
+                    st.write("✅ 한국 번호판 최적화 활성화")
+                    optimal_config = optimization_info.get('optimal_config', {})
+                    if optimal_config:
+                        st.write(f"모델 크기: {optimal_config.get('model_size', 'N/A')}")
+                        st.write(f"배치 크기: {optimal_config.get('batch_size', 'N/A')}")
+                        st.write(f"이미지 크기: {optimal_config.get('imgsz', 'N/A')}")
+                else:
+                    st.write("**최적화 정보**")
+                    st.write("⚠️ 기본 모드 (최적화 미적용)")
 
 # def process_video(video_file, vehicle_detector, plate_detector, image_processor, ocr_engine):
 #     # 비디오 처리 로직
