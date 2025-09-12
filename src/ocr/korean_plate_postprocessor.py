@@ -82,9 +82,39 @@ class KoreanPlatePostProcessor:
         
         # 자주 오인식되는 한글 교정
         self.hangul_corrections = {
-            # 비슷하게 생긴 한글들
-            'E': '모', 'P': '호', 'H': '하', 'T': '티', 'Y': '가',
-            'A': '아', 'X': '자', 'C': '시', 'U': '우', 'V': '부'
+            # 비슷하게 생긴 한글들 (영어 → 한글)
+            'E': '도', 'P': '호', 'H': '하', 'T': '티', 'Y': '가',
+            'A': '아', 'X': '자', 'C': '시', 'U': '우', 'V': '부',
+            # 한글 간 오인식 (비슷한 모양)
+            '리': '라', '머': '마', '버': '바', '서': '사', '저': '자',
+            '허': '하', '고': '구', '두': '도', '로': '루', '모': '무',
+            '보': '부', '소': '수', '오': '우', '조': '주', '초': '추',
+            '노': '누', '토': '투', '포': '푸', '호': '후', '코': '쿠'
+        }
+        
+        # 숫자 오인식 교정
+        self.number_corrections = {
+            'O': '0', 'o': '0', 'Q': '0', 'D': '0',  # O, o, Q, D → 0
+            'I': '1', 'l': '1', '|': '1', 'i': '1',  # I, l, |, i → 1  
+            'Z': '2', 'z': '2',                       # Z, z → 2
+            'E': '3', 'B': '8', 'S': '5', 's': '5',  # E→3, B→8, S,s→5
+            'G': '6', 'g': '6', 'b': '6',            # G, g, b → 6
+            'T': '7', 't': '7',                       # T, t → 7
+            'R': '8', 'A': '4', 'a': '4'             # R→8, A,a→4
+        }
+        
+        # 숫자-한글 오인식 교정 (번호판 위치별)
+        self.digit_to_hangul_corrections = {
+            '4': '나',  # 4와 나는 비슷하게 생김 (가장 흔한 오인식)
+            '7': '거',  # 7과 거는 비슷하게 생김
+            '6': '구',  # 6과 구는 비슷함
+            '9': '구',  # 9와 구도 비슷함
+            '0': '오',  # 0과 오는 비슷함
+            '1': '리',  # 1과 리는 비슷함
+            '3': '우',  # 3과 우는 비슷하게 생김
+            '2': '거',  # 2와 거도 유사함
+            '5': '다',  # 5와 다도 유사함
+            '8': '바',  # 8과 바도 유사함
         }
 
     def process_by_plate_type(self, text: str, plate_type: PlateType) -> str:
@@ -135,7 +165,40 @@ class KoreanPlatePostProcessor:
         # 영문 대소문자 통일
         text = text.upper()
         
+        # 숫자 오인식 교정
+        for wrong, correct in self.number_corrections.items():
+            text = text.replace(wrong, correct)
+        
+        # 한글 오인식 교정
+        for wrong, correct in self.hangul_corrections.items():
+            text = text.replace(wrong, correct)
+        
+        # 길이 초과 시 교정 시도
+        if len(text) > 8:  # 한국 번호판은 최대 8자
+            text = self._fix_excessive_length(text)
+        
         return text
+    
+    def _fix_excessive_length(self, text: str) -> str:
+        """길이 초과 텍스트 교정"""
+        # 827두3950 -> 82두3950 또는 82두4960 패턴으로 교정
+        if len(text) == 8:  # 827두3950 패턴
+            # 한글 위치 찾기
+            hangul_pos = -1
+            for i, char in enumerate(text):
+                if '가' <= char <= '힣':
+                    hangul_pos = i
+                    break
+            
+            if hangul_pos > 0:
+                # 한글 앞부분이 3자리면 2자리로 줄이기
+                if hangul_pos == 3:  # 827두 -> 82두
+                    return text[1:]  # 첫 번째 문자 제거
+                # 또는 뒷부분에서 조정
+                elif hangul_pos == 2:  # 82두3950 -> 82두4960 (숫자 교정은 별도 로직)
+                    return text
+        
+        return text[:7] if len(text) > 7 else text  # 기본적으로 길이 제한
     
     def _process_general_plate(self, text: str) -> str:
         """일반 자가용 번호판 처리"""
@@ -332,12 +395,191 @@ class KoreanPlatePostProcessor:
     
     def _intelligent_recovery(self, text: str, plate_type: str) -> str:
         """지능적 복구 시도"""
-        # 길이 기반 추정
+        # 1. 문자 순서 재정렬 시도
+        reordered = self._try_reorder_characters(text)
+        if self._validate_pattern(reordered, plate_type):
+            return reordered
+            
+        # 2. 길이 기반 추정
         if len(text) >= 6:
             # 가능한 모든 조합을 시도
             return self._try_all_corrections(text, plate_type)
         
         return text
+    
+    def _try_reorder_characters(self, text: str) -> str:
+        """문자 순서 재정렬 시도 (OCR이 순서를 잘못 읽은 경우)"""
+        if len(text) < 6:
+            return text
+        
+        # 1. 숫자만 있는 경우 - 한글이 숫자로 오인식된 경우 처리
+        if text.isdigit():
+            return self._recover_missing_hangul(text)
+            
+        # 2. 한국 번호판 형식에 맞게 재정렬
+        digits = []
+        hangul = []
+        
+        for char in text:
+            if char.isdigit():
+                digits.append(char)
+            elif '가' <= char <= '힣':
+                hangul.append(char)
+        
+        # 일반적인 패턴: 숫자2-3자리 + 한글1자리 + 숫자4자리
+        if len(digits) >= 6 and len(hangul) >= 1:
+            if len(digits) == 6:  # 28더8722 패턴
+                return f"{digits[0]}{digits[1]}{hangul[0]}{digits[2]}{digits[3]}{digits[4]}{digits[5]}"
+            elif len(digits) == 7:  # 123가4567 패턴
+                return f"{digits[0]}{digits[1]}{digits[2]}{hangul[0]}{digits[3]}{digits[4]}{digits[5]}{digits[6]}"
+        
+        return text
+    
+    def _recover_missing_hangul(self, text: str) -> str:
+        """한글이 누락된 경우 복원 (한글이 숫자로 오인식된 경우)"""
+        # 연속된 숫자에서 한글 위치 추정
+        if len(text) == 7:  # 2047513 -> 20나7513 패턴 (일반적인 케이스)
+            # 7자리 숫자의 경우 2자리 또는 3자리 뒤에 한글이 있을 가능성
+            for pos in [2, 3]:  # 위치 2 또는 3에서 시도
+                if pos < len(text) - 4:  # 뒤에 4자리 숫자가 남아있어야 함
+                    # 해당 위치의 숫자(들)을 한글로 변환 시도
+                    if pos == 2:  # 20나7513 패턴
+                        # 다음 1-2자리를 한글로 변환 시도
+                        for hangul_len in [1, 2]:  # 1자리 또는 2자리 숫자를 한글로
+                            if pos + hangul_len < len(text):
+                                digit_part = text[pos:pos + hangul_len]
+                                hangul_char = self._convert_digits_to_hangul(digit_part)
+                                if hangul_char:
+                                    remaining = text[pos + hangul_len:]
+                                    if len(remaining) == 4:  # 뒤에 4자리가 남아야 함
+                                        return f"{text[:pos]}{hangul_char}{remaining}"
+                    
+                    elif pos == 3:  # 123가4567 패턴 (하지만 7자리이므로 123가456 형태)
+                        digit_part = text[pos:pos + 1]  # 1자리만 시도
+                        hangul_char = self._convert_digits_to_hangul(digit_part)
+                        if hangul_char:
+                            remaining = text[pos + 1:]
+                            if len(remaining) >= 3:  # 최소 3자리 이상
+                                return f"{text[:pos]}{hangul_char}{remaining}"
+        
+        elif len(text) == 8:  # 26332037 -> 26우3203 패턴
+            # 일반적인 한글 위치들을 확인
+            possible_positions = [2, 3]  # 2자리 또는 3자리 후
+            
+            for pos in possible_positions:
+                if pos < len(text):
+                    candidate_digit = text[pos]
+                    if candidate_digit in self.digit_to_hangul_corrections:
+                        hangul_char = self.digit_to_hangul_corrections[candidate_digit]
+                        
+                        if pos == 2:  # 26우3203 패턴
+                            return f"{text[:2]}{hangul_char}{text[3:7]}"
+                        elif pos == 3:  # 123가4567 패턴  
+                            return f"{text[:3]}{hangul_char}{text[4:8]}"
+                            
+        elif len(text) == 9:  # 123가4567 형식에서 한글이 숫자로 된 경우
+            candidate_hangul_pos = 3
+            candidate_digit = text[candidate_hangul_pos]
+            
+            if candidate_digit in self.digit_to_hangul_corrections:
+                hangul_char = self.digit_to_hangul_corrections[candidate_digit]
+                return f"{text[:3]}{hangul_char}{text[4:8]}"
+        
+        # 연속 숫자 패턴 분석 - 가장 가능성 높은 위치에서 한글 복원
+        return self._analyze_digit_sequence(text)
+    
+    def _convert_digits_to_hangul(self, digit_part: str) -> str:
+        """숫자를 한글로 변환 (OCR 오인식 교정)"""
+        if len(digit_part) == 1:
+            # 단일 숫자를 한글로 변환
+            return self.digit_to_hangul_corrections.get(digit_part, '')
+        elif len(digit_part) == 2:
+            # 2자리 숫자 조합도 처리 (필요시)
+            # 예: "47" -> 일단 첫 번째 자리만 변환 시도
+            first_digit = digit_part[0]
+            return self.digit_to_hangul_corrections.get(first_digit, '')
+        return ''
+    
+    def _analyze_digit_sequence(self, text: str) -> str:
+        """연속 숫자 패턴을 분석하여 한글 위치 추정"""
+        if len(text) == 7 and text.isdigit():  # 2047513 케이스
+            # 2자리 뒤에 한글이 올 가능성이 높음
+            pos = 2
+            candidate_digit = text[pos]  # '4'
+            if candidate_digit in self.digit_to_hangul_corrections:
+                hangul_char = self.digit_to_hangul_corrections[candidate_digit]  # '나'
+                # 20 + 나 + 7513 = 20나7513
+                return f"{text[:pos]}{hangul_char}{text[pos+1:]}"
+        
+        return text
+    
+    def _validate_pattern(self, text: str, plate_type: str) -> bool:
+        """패턴 유효성 검사"""
+        if not text:
+            return False
+            
+        # 기본 길이 체크
+        if len(text) < 6 or len(text) > 8:
+            return False
+            
+        # 일반 번호판 패턴 체크
+        if plate_type == 'general':
+            # 28더8722 또는 123가4567 형식
+            pattern1 = re.match(r'^\d{2}[가-힣]\d{4}$', text)  # 28더8722
+            pattern2 = re.match(r'^\d{3}[가-힣]\d{4}$', text)  # 123가4567
+            
+            if pattern1 or pattern2:
+                # 한글이 받침 없는 문자인지 확인
+                hangul_char = ''
+                for char in text:
+                    if '가' <= char <= '힣':
+                        hangul_char = char
+                        break
+                
+                return hangul_char in self.valid_hangul
+        
+        return False
+    
+    def _analyze_digit_sequence(self, text: str) -> str:
+        """연속 숫자 패턴을 분석해서 한글 위치 추정"""
+        if not text.isdigit() or len(text) < 6:
+            return text
+            
+        # 한국 번호판 패턴에서 가능한 한글 위치 확인
+        for pos in range(2, min(4, len(text)-3)):  # 2~3번째 위치
+            candidate = text[pos]
+            if candidate in self.digit_to_hangul_corrections:
+                hangul_char = self.digit_to_hangul_corrections[candidate]
+                
+                # 패턴 검증: 앞부분(2-3자리) + 한글 + 뒷부분(4자리)
+                if pos == 2 and len(text) >= 7:  # 26우3203 패턴
+                    reconstructed = f"{text[:2]}{hangul_char}{text[3:7]}"
+                    if self._is_valid_plate_format(reconstructed):
+                        return reconstructed
+                        
+                elif pos == 3 and len(text) >= 8:  # 123가4567 패턴  
+                    reconstructed = f"{text[:3]}{hangul_char}{text[4:8]}"
+                    if self._is_valid_plate_format(reconstructed):
+                        return reconstructed
+        
+        return text
+    
+    def _is_valid_plate_format(self, text: str) -> bool:
+        """번호판 형식이 유효한지 간단 검사"""
+        if len(text) < 6 or len(text) > 8:
+            return False
+            
+        # 기본 패턴 확인
+        pattern1 = re.match(r'^\d{2}[가-힣]\d{4}$', text)  # 26우3203
+        pattern2 = re.match(r'^\d{3}[가-힣]\d{4}$', text)  # 123가4567
+        
+        if pattern1 or pattern2:
+            # 한글이 받침 없는 문자인지 확인
+            for char in text:
+                if '가' <= char <= '힣':
+                    return char in self.valid_hangul
+        
+        return False
     
     def _try_all_corrections(self, text: str, plate_type: str) -> str:
         """모든 가능한 교정 조합 시도"""

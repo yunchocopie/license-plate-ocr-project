@@ -50,7 +50,7 @@ OCR_GPU = True                        # GPU 사용 여부 (가능한 경우)
 OCR_ALLOWED_CHARS = '가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허고노도로모보소오조초코토포호구누두루무부수우주추쿠투푸후그느드르므브스으즈츠크트프흐기니디리미비시이지치키티피히루' + '0123456789'  # 허용된 문자 ('루' 포함)
 
 # EasyOCR 모델 설정
-DOWNLOAD_ENABLED = True               # 모델 자동 다운로드 여부
+DOWNLOAD_ENABLED = False              # 로컬 모델 사용 (download_models.py로 사전 다운로드된 모델 사용)
 
 # OCR 결과 신뢰도 임계값
 MIN_OCR_CONFIDENCE = 0.3              # 최소 OCR 신뢰도

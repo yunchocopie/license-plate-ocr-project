@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import easyocr
 import torch
+import os
 from .text_postprocess import TextPostProcessor # 상대 경로 유지
 from .korean_plate_postprocessor import KoreanPlatePostProcessor # 한국 번호판 전용 후처리기
 from ..classification.plate_classifier import PlateClassifier # 번호판 분류기 추가
@@ -24,13 +25,29 @@ class OCREngine:
         # EasyOCR은 문자열 리스트를 허용 문자로 받음
         self.allowed_chars = allowed_chars if allowed_chars is not None else config.OCR_ALLOWED_CHARS
         self.model_storage_directory = model_storage_directory if model_storage_directory is not None else config.MODEL_DIR
-        self.download_enabled = download_enabled if download_enabled is not None else config.DOWNLOAD_ENABLED
+        self.download_enabled = False  # 로컬 모델 사용을 위해 다운로드 비활성화
 
+        # 로컬 모델 파일 경로 설정 및 확인
+        self.craft_model_path = os.path.join(self.model_storage_directory, 'craft_mlt_25k.pth')
+        self.korean_model_path = os.path.join(self.model_storage_directory, 'korean_g2.pth')
+
+        # 로컬 모델 파일 존재 여부 확인
+        if not os.path.exists(self.craft_model_path):
+            raise FileNotFoundError(f"CRAFT 모델 파일을 찾을 수 없습니다: {self.craft_model_path}")
+        if not os.path.exists(self.korean_model_path):
+            raise FileNotFoundError(f"한국어 모델 파일을 찾을 수 없습니다: {self.korean_model_path}")
+
+        print(f"로컬 모델 사용:")
+        print(f"  CRAFT 모델: {self.craft_model_path}")
+        print(f"  한국어 모델: {self.korean_model_path}")
+
+        # EasyOCR Reader 초기화 (로컬 모델 디렉토리 사용)
         self.reader = easyocr.Reader(
             self.languages,
             gpu=self.gpu,
             model_storage_directory=self.model_storage_directory,
-            download_enabled=self.download_enabled
+            download_enabled=self.download_enabled,
+            verbose=True
         )
         self.post_processor = TextPostProcessor(allowed_chars=self.allowed_chars)
         self.korean_postprocessor = KoreanPlatePostProcessor()  # 한국 번호판 전용 후처리기
@@ -42,6 +59,19 @@ class OCREngine:
         # (기존 로직과 유사하게, recognize 메서드와 입력 이미지 처리 동일하게)
         if image is None or image.size == 0:
             return "", 0.0
+
+        # 이미지 크기 검증 및 전처리
+        height, width = image.shape[:2]
+        print(f"입력 이미지 크기: {width}x{height}")
+        
+        # 너무 작은 이미지는 확대
+        if width < 100 or height < 30:
+            print("이미지가 너무 작습니다. 확대 처리중...")
+            scale_factor = max(100/width, 30/height) * 2  # 2배 추가 확대
+            new_width = int(width * scale_factor)
+            new_height = int(height * scale_factor)
+            image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+            print(f"확대 후 크기: {new_width}x{new_height}")
 
         # 고급 전처리 적용 (자동 최적화)
         if use_advanced_preprocessing:
@@ -56,17 +86,62 @@ class OCREngine:
                 processed_image = image
 
         try:
-            results = self.reader.readtext(processed_image, detail=1, allowlist=self.allowed_chars, paragraph=False)
+            # 이미지 크기에 따라 EasyOCR 파라미터 조정
+            if height < 50 or width < 150:  # 작은 이미지
+                print("작은 이미지용 OCR 설정 사용")
+                results = self.reader.readtext(
+                    processed_image, 
+                    detail=1, 
+                    allowlist=self.allowed_chars, 
+                    paragraph=False,
+                    width_ths=0.1,  # 매우 작은 문자도 인식
+                    height_ths=0.1,
+                    text_threshold=0.5,  # 텍스트 감지 임계값 낮춤
+                    low_text=0.2,  # 낮은 품질 텍스트도 허용
+                    decoder='beamsearch'
+                )
+            else:
+                results = self.reader.readtext(
+                    processed_image, 
+                    detail=1, 
+                    allowlist=self.allowed_chars, 
+                    paragraph=False,
+                    width_ths=0.3,  # 텍스트 폭 임계값 낮춤 (더 작은 문자 인식)
+                    height_ths=0.3,  # 텍스트 높이 임계값 낮춤
+                    decoder='beamsearch'  # 더 정확한 디코딩
+                )
         except Exception as e:
             print(f"OCR Error: {e}")
             return "", 0.0
 
         if not results:
-            return "", 0.0
+            print("EasyOCR 결과 없음 - 예비 방법들 시도")
+            # 디버깅용으로 전처리된 이미지 저장 (임시)
+            try:
+                cv2.imwrite('/tmp/debug_ocr_image.jpg', processed_image)
+                print("디버그 이미지 저장: /tmp/debug_ocr_image.jpg")
+            except:
+                pass
+                
+            # 예비 방법 1: 다른 전처리로 재시도
+            backup_results = self._try_backup_ocr(processed_image)
+            if backup_results:
+                results = backup_results
+            else:
+                return "", 0.0
 
-        # 신뢰도 필터링 및 정렬
-        filtered_results = [r for r in results if r[2] >= min_confidence]
-        # filtered_results.sort(key=lambda x: x[0][0][0]) # X 좌표 기준 정렬
+        # 작은 이미지의 경우 신뢰도 기준을 낮춤
+        actual_min_confidence = min_confidence
+        if height < 50 or width < 150:  # 작은 이미지
+            actual_min_confidence = max(0.1, min_confidence - 0.2)  # 신뢰도 기준 완화
+            print(f"작은 이미지 감지: 신뢰도 기준을 {min_confidence} -> {actual_min_confidence}로 낮춤")
+        
+        # 신뢰도 필터링 및 좌표 기준 정렬
+        filtered_results = [r for r in results if r[2] >= actual_min_confidence]
+        
+        # 번호판 텍스트를 좌표 순서대로 정렬 (왼쪽에서 오른쪽으로)
+        if len(filtered_results) > 1:
+            filtered_results.sort(key=lambda x: x[0][0][0])  # X 좌표 기준 정렬
 
         if not filtered_results:
             return "", 0.0
@@ -79,6 +154,51 @@ class OCREngine:
 
         processed_text = self.post_processor.process(combined_text)
         return processed_text, avg_confidence
+    
+    def _try_backup_ocr(self, image):
+        """예비 OCR 방법들을 시도"""
+        print("예비 OCR 방법 시도 중...")
+        
+        # 방법 1: 이진화 + 노이즈 제거
+        try:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+            
+            # 적응형 이진화
+            binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                         cv2.THRESH_BINARY, 11, 2)
+            
+            # 노이즈 제거
+            kernel = np.ones((2,2), np.uint8)
+            cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+            
+            # 다시 3채널로 변환
+            if len(cleaned.shape) == 2:
+                cleaned = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+            
+            print("이진화 전처리로 OCR 재시도")
+            results = self.reader.readtext(cleaned, detail=1, allowlist=self.allowed_chars, 
+                                         paragraph=False, width_ths=0.1, height_ths=0.1)
+            if results:
+                print(f"예비 방법 성공: {len(results)}개 텍스트 발견")
+                return results
+                
+        except Exception as e:
+            print(f"예비 OCR 방법 1 실패: {e}")
+        
+        # 방법 2: 강한 대비 증가
+        try:
+            enhanced = cv2.convertScaleAbs(image, alpha=2.0, beta=0)  # 대비 2배 증가
+            print("대비 강화로 OCR 재시도")
+            results = self.reader.readtext(enhanced, detail=1, allowlist=self.allowed_chars,
+                                         paragraph=False, width_ths=0.05, height_ths=0.05)
+            if results:
+                print(f"예비 방법 2 성공: {len(results)}개 텍스트 발견")
+                return results
+                
+        except Exception as e:
+            print(f"예비 OCR 방법 2 실패: {e}")
+            
+        return None
 
     def recognize_korean_license_plate(self, image, use_advanced_preprocessing=True):
         # 이 함수는 recognize_with_confidence를 사용하므로 별도 수정은 적음
