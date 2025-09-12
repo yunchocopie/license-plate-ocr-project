@@ -552,7 +552,11 @@ class AdvancedImageProcessor:
         original_contrast = np.std(original)
         processed_contrast = np.std(processed)
         
-        # 구조적 유사도 (간단한 버전)
+        # 구조적 유사도 (간단한 버전) - 이미지 크기 일치시키기
+        if original.shape != processed.shape:
+            # processed 이미지를 original 크기에 맞춤
+            processed = cv2.resize(processed, (original.shape[1], original.shape[0]))
+        
         mse = np.mean((original.astype(np.float32) - processed.astype(np.float32)) ** 2)
         max_pixel = 255.0
         psnr = 20 * np.log10(max_pixel / np.sqrt(mse)) if mse > 0 else float('inf')

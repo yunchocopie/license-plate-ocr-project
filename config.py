@@ -38,9 +38,32 @@ IMAGE_SIZE = (640, 640)        # YOLO 입력 이미지 크기
 # ==========================================
 # 이미지 전처리 파라미터
 # ==========================================
-PLATE_SIZE = (320, 80)         # 번호판 정규화 크기 (width, height) - OCR에 최적화된 크기
+# 번호판 타입별 최적화된 크기 설정 (width, height)
+PLATE_SIZES = {
+    'general': (320, 80),           # 일반 번호판 (03마7893, 04루3284) - 가장 일반적
+    'general_3digit': (360, 80),    # 3자리 번호판 (145하1937)
+    'commercial': (400, 80),        # 영업용 번호판 (경기37바2120)
+    'electric': (320, 80),          # 전기차 (일반과 동일)
+    'diplomatic': (350, 80),        # 외교관용
+    'military': (300, 80),          # 군용
+    'construction': (400, 80),      # 건설기계
+    'motorcycle': (280, 60),        # 이륜차 (작은 크기)
+    'temporary': (320, 80),         # 임시운행
+    'default': (320, 80)            # 기본값
+}
+
+PLATE_SIZE = PLATE_SIZES['general']  # 하위 호환성을 위한 기본값
 BLUR_KERNEL_SIZE = (5, 5)      # 블러 커널 크기
 BLUR_SIGMA = 0                 # 가우시안 블러 시그마 값 (0: 커널 크기에 맞게 자동 계산)
+
+# 한국 번호판 최적화 설정
+KOREAN_PLATE_OPTIMIZATION = {
+    'min_char_width': 15,           # 최소 문자 폭 (픽셀)
+    'min_char_height': 25,          # 최소 문자 높이 (픽셀)
+    'char_spacing_threshold': 8,    # 문자 간격 임계값
+    'line_height_ratio': 0.7,       # 라인 높이 비율
+    'aspect_ratio_tolerance': 0.3    # 종횡비 허용 오차
+}
 
 # ==========================================
 # OCR 엔진 설정

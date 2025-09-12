@@ -285,3 +285,83 @@ class OCREngine:
             pass
         
         return processed_text
+    
+    def recognize_korean_plate_optimized(self, image, plate_type='general', min_confidence=None):
+        """
+        한국 번호판에 최적화된 인식 (제공된 이미지 구조 기반)
+        
+        Args:
+            image: 번호판 이미지
+            plate_type: 'general', 'general_3digit', 'commercial' 등
+            min_confidence: 최소 신뢰도
+            
+        Returns:
+            dict: 인식 결과와 상세 정보
+        """
+        if min_confidence is None:
+            min_confidence = config.MIN_OCR_CONFIDENCE
+            
+        # 번호판 타입에 최적화된 전처리
+        optimized_image = self.image_processor.process_for_plate_type(image, plate_type)
+        
+        # 한국어 문자 특화 전처리
+        korean_optimized = self.image_processor.optimize_for_korean_chars(optimized_image)
+        
+        # 두 가지 전처리 결과로 OCR 수행
+        results = []
+        
+        # 1. 타입 최적화 이미지로 인식
+        text1, conf1 = self.recognize_with_confidence(optimized_image, min_confidence, use_advanced_preprocessing=False)
+        if text1:
+            results.append((text1, conf1, 'type_optimized'))
+        
+        # 2. 한국어 특화 이미지로 인식
+        text2, conf2 = self.recognize_with_confidence(korean_optimized, min_confidence, use_advanced_preprocessing=False)
+        if text2:
+            results.append((text2, conf2, 'korean_optimized'))
+        
+        # 3. 원본 이미지로 백업 인식
+        if not results:
+            text3, conf3 = self.recognize_with_confidence(image, min_confidence)
+            if text3:
+                results.append((text3, conf3, 'original'))
+        
+        # 최상의 결과 선택
+        if results:
+            # 신뢰도가 높은 순으로 정렬
+            results.sort(key=lambda x: x[1], reverse=True)
+            best_text, best_conf, method = results[0]
+            
+            # 한국 번호판 후처리 적용
+            from ..classification.plate_classifier import PlateType, PlateClassifier
+            classifier = PlateClassifier()
+            classification = classifier.classify_plate(image, best_text)
+            
+            final_text = self.korean_postprocessor.process_by_plate_type(
+                best_text, classification['type']
+            )
+            
+            # 검증
+            validation = self.korean_postprocessor.validate_format(
+                final_text, classification['type']
+            )
+            
+            return {
+                'text': final_text,
+                'confidence': best_conf,
+                'method': method,
+                'raw_results': results,
+                'classification': classification,
+                'validation': validation,
+                'preprocessing_used': [method]
+            }
+        
+        return {
+            'text': '',
+            'confidence': 0.0,
+            'method': 'failed',
+            'raw_results': [],
+            'classification': None,
+            'validation': {'is_valid': False, 'errors': ['인식 실패']},
+            'preprocessing_used': []
+        }

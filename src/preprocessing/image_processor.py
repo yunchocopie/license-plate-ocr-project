@@ -24,6 +24,31 @@ class ImageProcessor:
         self.perspective_corrector = PerspectiveCorrection()
         self.normalizer = Normalize(target_size=config.PLATE_SIZE)
         self.advanced_processor = AdvancedImageProcessor()  # 고급 전처리 프로세서
+        
+        # 번호판 타입별 최적화 설정
+        self.plate_type_configs = {
+            'general': {
+                'target_size': config.PLATE_SIZES.get('general', (320, 80)),
+                'enhancement_strength': 1.2,  # 적당한 대비 향상
+                'noise_reduction': 'light',   # 가벼운 노이즈 제거
+                'sharpening': True,          # 샤프닝 적용
+                'char_separation': True      # 문자 분리 최적화
+            },
+            'general_3digit': {
+                'target_size': config.PLATE_SIZES.get('general_3digit', (360, 80)),
+                'enhancement_strength': 1.3,  # 조금 더 강한 대비
+                'noise_reduction': 'medium',  # 중간 노이즈 제거
+                'sharpening': True,
+                'char_separation': True
+            },
+            'commercial': {
+                'target_size': config.PLATE_SIZES.get('commercial', (400, 80)),
+                'enhancement_strength': 1.4,  # 노란 배경 대비 강화
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': False     # 지역명+번호 연결형
+            }
+        }
 
     def process(self, image,
                 perform_denoising=True,
@@ -288,3 +313,102 @@ class ImageProcessor:
         
         result = self.process_advanced(image, quality_mode=mode)
         return result['processed_image']
+    
+    def process_for_plate_type(self, image, plate_type='general'):
+        """
+        번호판 타입에 최적화된 전처리 (제공된 이미지 구조 기반)
+        
+        Args:
+            image: 입력 번호판 이미지
+            plate_type: 'general', 'general_3digit', 'commercial' 등
+            
+        Returns:
+            전처리된 이미지
+        """
+        if image is None or image.size == 0:
+            return np.zeros((80, 320), dtype=np.uint8)
+        
+        # 타입별 설정 가져오기
+        config_key = plate_type if plate_type in self.plate_type_configs else 'general'
+        type_config = self.plate_type_configs[config_key]
+        
+        # 1. 그레이스케일 변환
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+        
+        # 2. 타입별 크기 조정
+        target_size = type_config['target_size']
+        resized = cv2.resize(gray, target_size, interpolation=cv2.INTER_CUBIC)
+        
+        # 3. 노이즈 제거 (타입별 강도)
+        noise_level = type_config['noise_reduction']
+        if noise_level == 'light':
+            denoised = cv2.fastNlMeansDenoising(resized, None, h=3, templateWindowSize=7, searchWindowSize=21)
+        elif noise_level == 'medium':
+            denoised = cv2.fastNlMeansDenoising(resized, None, h=5, templateWindowSize=7, searchWindowSize=21)
+        else:
+            denoised = resized.copy()
+        
+        # 4. 대비 향상 (타입별 강도)
+        strength = type_config['enhancement_strength']
+        enhanced = cv2.convertScaleAbs(denoised, alpha=strength, beta=10)
+        
+        # 5. 적응형 히스토그램 평활화 (CLAHE)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        equalized = clahe.apply(enhanced)
+        
+        # 6. 샤프닝 (선택적)
+        if type_config.get('sharpening', False):
+            kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+            sharpened = cv2.filter2D(equalized, -1, kernel)
+            # 샤프닝 강도 조절
+            result = cv2.addWeighted(equalized, 0.7, sharpened, 0.3, 0)
+        else:
+            result = equalized
+        
+        # 7. 문자 분리 최적화 (일반 번호판용)
+        if type_config.get('char_separation', False):
+            # 모폴로지 연산으로 문자 분리 개선
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 1))
+            result = cv2.morphologyEx(result, cv2.MORPH_OPEN, kernel)
+        
+        return result
+    
+    def optimize_for_korean_chars(self, image):
+        """
+        한국어 문자 인식에 특화된 전처리
+        (마, 바, 루, 아, 하 등 제공된 이미지의 한글 최적화)
+        """
+        if image is None or image.size == 0:
+            return np.zeros((80, 320), dtype=np.uint8)
+        
+        # 1. 기본 전처리
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+        
+        # 2. 한글 문자 특성 고려한 이진화
+        # 적응형 임계값으로 다양한 조명 조건에 대응
+        binary = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 11, 2
+        )
+        
+        # 3. 한글 획 두께 정규화
+        # 모폴로지 연산으로 한글 특성 강화
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+        closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
+        
+        # 4. 작은 노이즈 제거
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+        cleaned = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel_open)
+        
+        # 5. 한글 문자 간격 최적화
+        # 세로 방향 연결 강화 (한글 특성)
+        vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 3))
+        result = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, vertical_kernel)
+        
+        return result
