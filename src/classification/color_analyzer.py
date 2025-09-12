@@ -151,17 +151,28 @@ class ColorAnalyzer:
         # 가우시안 블러로 노이즈 제거
         denoised = cv2.GaussianBlur(image, (3, 3), 0)
         
-        # CLAHE를 이용한 대비 향상
-        lab = cv2.cvtColor(denoised, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        l = clahe.apply(l)
-        
-        enhanced = cv2.merge([l, a, b])
-        enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-        
-        return enhanced
+        # 이미지 채널 수 확인
+        if len(image.shape) == 3 and image.shape[2] == 3:
+            # 컬러 이미지인 경우 CLAHE를 이용한 대비 향상
+            lab = cv2.cvtColor(denoised, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            l = clahe.apply(l)
+            
+            enhanced = cv2.merge([l, a, b])
+            enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+            
+            return enhanced
+        else:
+            # 그레이스케일 이미지인 경우 직접 CLAHE 적용
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(denoised)
+            
+            # 컬러 분석을 위해 3채널로 변환
+            enhanced = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+            
+            return enhanced
     
     def _segment_regions(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """배경 영역과 텍스트 영역 분리"""

@@ -65,8 +65,8 @@ class PlateDetector:
 # 레거시 호환성을 위한 래퍼 함수
 def create_optimized_plate_detector(model_path=None, conf_threshold=None) -> PlateDetector:
     """최적화된 번호판 검출기 생성 (권장)"""
-    return PlateDetector(model_path, conf_threshold, use_korean_optimization=True)
+    return PlateDetector(model_path, conf_threshold)
 
 def create_standard_plate_detector(model_path=None, conf_threshold=None) -> PlateDetector:
     """표준 번호판 검출기 생성"""
-    return PlateDetector(model_path, conf_threshold, use_korean_optimization=False)
+    return PlateDetector(model_path, conf_threshold)

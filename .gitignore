@@ -3,6 +3,7 @@ venv/
 env/
 .venv/
 .env/
+.python-version
 
 # Python 캐시 파일
 __pycache__/

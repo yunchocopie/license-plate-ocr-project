@@ -151,7 +151,11 @@ class PlateClassifier:
             'has_special_symbols': False
         }
         
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # 이미지가 이미 그레이스케일인지 확인
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
         
         # EV 표기 탐지 (간단한 템플릿 매칭 또는 텍스트 영역 분석)
         # 실제 구현에서는 더 정교한 알고리즘 필요

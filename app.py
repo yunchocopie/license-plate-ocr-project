@@ -137,7 +137,7 @@ def main():
         
     if uploaded_file is not None:
             # 이미지 처리 및 결과 표시
-            results = process_image(uploaded_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps)
+            results = process_image(uploaded_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer)
             
             # Excel 다운로드 버튼 추가
             if results and OPENPYXL_AVAILABLE:
@@ -243,7 +243,7 @@ def main():
         # 배치 처리 로직
         process_batch_images(vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode)
 
-def process_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False):
+def process_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None):
 
     """
     A. 차량 감지 후 번호판 감지
@@ -327,10 +327,12 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
             processed_plate = image_processor.process(plate_image)
             
             # OCR 처리 및 분류
-            ocr_result = ocr_engine.recognize_with_classification(processed_plate)
+            ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
             plate_text = ocr_result['text']
             confidence = ocr_result['confidence']
             classification = ocr_result['classification']
+            validation = ocr_result.get('validation', {})
+            preprocessing_info = ocr_result.get('preprocessing_info', {})
             
             # 결과 저장
             results.append({
@@ -519,7 +521,10 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
     if show_preprocessing_info:
         # 시스템 최적화 상세 정보
         with st.expander("🔧 시스템 최적화 상세"):
-            system_report = system_optimizer.get_system_report()
+            if system_optimizer:
+                system_report = system_optimizer.get_system_report()
+            else:
+                system_report = {"status": "시스템 최적화를 사용할 수 없습니다."}
             
             col1, col2 = st.columns(2)
             with col1:

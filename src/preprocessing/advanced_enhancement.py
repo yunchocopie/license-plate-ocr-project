@@ -462,8 +462,11 @@ class IlluminationNormalizer:
         # 부드러운 전환을 위한 블러링
         shadow_mask_blur = cv2.GaussianBlur(shadow_mask.astype(np.float32), (5, 5), 0)
         
-        # 원본과 보정된 이미지를 부드럽게 블렌딩
-        blended = image * (1 - shadow_mask_blur[:, :, np.newaxis]) + corrected * shadow_mask_blur[:, :, np.newaxis]
+        # 이미지 차원에 따른 블렌딩
+        if len(image.shape) == 3:  # 컬러 이미지
+            blended = image * (1 - shadow_mask_blur[:, :, np.newaxis]) + corrected * shadow_mask_blur[:, :, np.newaxis]
+        else:  # 그레이스케일 이미지
+            blended = image * (1 - shadow_mask_blur) + corrected * shadow_mask_blur
         
         return blended.astype(np.uint8)
     
