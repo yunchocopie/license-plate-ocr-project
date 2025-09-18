@@ -60,3 +60,5 @@ packages/
 temp/
 
 gitignore_folder/
+.claude/
+CLAUDE.md

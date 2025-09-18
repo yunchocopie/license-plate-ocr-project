@@ -130,11 +130,14 @@ def main():
         with st.sidebar.expander("📊 검출 성능 정보"):
             recommendations = plate_detector.get_system_recommendations()
             st.text(recommendations)
-    
+
+    # 변수 초기화
+    uploaded_file = None
+
     if input_type == "이미지 업로드":
         # 이미지 업로드 로직
         uploaded_file = st.sidebar.file_uploader("이미지 업로드", type=["jpg", "jpeg", "png"])
-        
+
     if uploaded_file is not None:
             # 이미지 처리 및 결과 표시
             results = process_image(uploaded_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer)
@@ -684,7 +687,10 @@ def process_batch_with_progress(uploaded_files, vehicle_detector, plate_detector
         
         # 업로드된 파일들을 임시 디렉토리에 저장
         for i, file in enumerate(uploaded_files):
-            file_path = input_dir / f"image_{i:04d}_{file.name}"
+            # 파일명에서 경로 분리자 제거하고 안전한 파일명 생성
+            safe_name = getattr(file, 'name', f'image_{i:04d}.jpg')
+            safe_name = safe_name.replace('/', '_').replace('\\', '_')
+            file_path = input_dir / f"image_{i:04d}_{safe_name}"
             with open(file_path, 'wb') as f:
                 f.write(file.getvalue())
         
