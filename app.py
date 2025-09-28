@@ -47,14 +47,9 @@ def main():
     
     # 사이드바 설정
     st.sidebar.title("설정")
-    input_type = st.sidebar.radio("입력 유형", ["이미지 업로드", "카메라 촬영", "비디오 업로드", "배치 처리"])
     
-    # 감지 모드 선택
-    detection_mode = st.sidebar.radio("감지 모드", [
-        "차량 감지 후 번호판 감지", 
-        "직접 번호판 감지",
-        "자동 감지 모드(권장)"
-    ], index=2)
+    # 감지 모드 (자동 감지 모드 고정)
+    detection_mode = "자동 감지 모드(권장)"
     
     # 전처리 모드 선택
     preprocessing_mode = st.sidebar.selectbox("이미지 전처리 모드", [
@@ -131,28 +126,33 @@ def main():
             recommendations = plate_detector.get_system_recommendations()
             st.text(recommendations)
 
-    # 변수 초기화
-    uploaded_file = None
+    # 통합 파일 업로더
+    st.subheader("📁 파일 업로드")
+    uploaded_files = st.file_uploader(
+        "파일을 업로드하세요 (이미지 또는 ZIP 파일)",
+        type=["jpg", "jpeg", "png", "zip"],
+        accept_multiple_files=True,
+        help="단일 이미지, 여러 이미지, 또는 ZIP 파일을 업로드할 수 있습니다."
+    )
 
-    if input_type == "이미지 업로드":
-        # 이미지 업로드 로직
-        uploaded_file = st.sidebar.file_uploader("이미지 업로드", type=["jpg", "jpeg", "png"])
+    # 처리 시작 버튼 및 파일 처리
+    if uploaded_files:
+        st.success(f"총 {len(uploaded_files)}개의 파일이 업로드되었습니다.")
 
-    if uploaded_file is not None:
-            # 이미지 처리 및 결과 표시
-            results = process_image(uploaded_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer)
-            
-            # Excel 다운로드 버튼 추가
-            if results and OPENPYXL_AVAILABLE:
+        if st.button("🚀 처리 시작", type="primary"):
+            results = process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer)
+
+            # 단일 이미지 처리 결과에 대한 Excel 다운로드 버튼
+            if results and results.get('type') != 'batch' and OPENPYXL_AVAILABLE:
                 st.subheader("💾 결과 다운로드")
-                
+
                 if st.button("📈 Excel 보고서 다운로드"):
                     with st.spinner("Excel 파일 생성 중..."):
                         # 임시 이미지 파일 저장
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
-                            tmp_file.write(uploaded_file.getvalue())
+                            tmp_file.write(uploaded_files[0].getvalue())
                             temp_image_path = tmp_file.name
-                        
+
                         # Excel 파일 생성
                         excel_file = create_single_result_excel(
                             temp_image_path,
@@ -162,91 +162,135 @@ def main():
                             processing_time=results.get('processing_time', 0),
                             detection_mode=detection_mode
                         )
-                        
+
                         if excel_file and os.path.exists(excel_file):
                             with open(excel_file, 'rb') as f:
                                 excel_data = f.read()
-                            
+
                             st.download_button(
                                 label="📊 Excel 보고서 다운로드",
                                 data=excel_data,
                                 file_name=f"plate_analysis_{int(time.time())}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
-                            
-                            # 임시 파일 정리
-                            try:
-                                os.unlink(temp_image_path)
-                                os.unlink(excel_file)
-                            except:
-                                pass
-                        else:
-                            st.error("Excel 파일 생성에 실패했습니다.")
-            
-    elif input_type == "카메라 촬영":
-        # 카메라 촬영 로직
-        camera_input = st.camera_input("사진 촬영")
-        
-        if camera_input is not None:
-            # 이미지 처리 및 결과 표시
-            results = process_image(camera_input, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps)
-            
-            # Excel 다운로드 버튼 추가
-            if results and OPENPYXL_AVAILABLE:
-                st.subheader("💾 결과 다운로드")
-                
-                if st.button("📈 Excel 보고서 다운로드", key="camera_excel"):
-                    with st.spinner("Excel 파일 생성 중..."):
-                        # 임시 이미지 파일 저장
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
-                            tmp_file.write(camera_input.getvalue())
-                            temp_image_path = tmp_file.name
-                        
-                        # Excel 파일 생성
-                        excel_file = create_single_result_excel(
-                            temp_image_path,
-                            results.get('plates', []),
-                            "camera_result.xlsx",
-                            include_image=True,
-                            processing_time=results.get('processing_time', 0),
-                            detection_mode=detection_mode
-                        )
-                        
-                        if excel_file and os.path.exists(excel_file):
-                            with open(excel_file, 'rb') as f:
-                                excel_data = f.read()
-                            
-                            st.download_button(
-                                label="📊 Excel 보고서 다운로드",
-                                data=excel_data,
-                                file_name=f"camera_analysis_{int(time.time())}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="camera_excel_download"
-                            )
-                            
-                            # 임시 파일 정리
-                            try:
-                                os.unlink(temp_image_path)
-                                os.unlink(excel_file)
-                            except:
-                                pass
-                        else:
-                            st.error("Excel 파일 생성에 실패했습니다.")
-            
-    elif input_type == "비디오 업로드":
-        # 비디오 업로드 로직
-        video_file = st.sidebar.file_uploader("비디오 업로드", type=["mp4", "avi", "mov"])
-        
-        if video_file is not None:
-            # 비디오 처리 및 결과 표시
-            st.warning("비디오 처리 기능은 현재 개발 중입니다.")
-            #process_video(video_file, vehicle_detector, plate_detector, image_processor, ocr_engine)
-            
-    elif input_type == "배치 처리":
-        # 배치 처리 로직
-        process_batch_images(vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode)
 
-def process_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None):
+                            # 임시 파일 정리
+                            try:
+                                os.unlink(temp_image_path)
+                                os.unlink(excel_file)
+                            except:
+                                pass
+                        else:
+                            st.error("Excel 파일 생성에 실패했습니다.")
+
+def analyze_uploaded_files(uploaded_files):
+    """업로드된 파일들을 분석하여 처리 방식 결정"""
+    image_files = []
+    zip_files = []
+
+    for file in uploaded_files:
+        if file.name.lower().endswith('.zip'):
+            zip_files.append(file)
+        elif file.name.lower().endswith(('.jpg', '.jpeg', '.png')):
+            image_files.append(file)
+
+    # ZIP 파일에서 이미지 추출
+    extracted_images = []
+    for zip_file in zip_files:
+        extracted = extract_images_from_zip(zip_file)
+        extracted_images.extend(extracted)
+
+    # 모든 이미지 파일 통합
+    all_images = image_files + extracted_images
+
+    # 처리 방식 결정
+    if len(all_images) == 1:
+        return "single", all_images
+    elif len(all_images) > 1:
+        return "batch", all_images
+    else:
+        return "none", []
+
+def process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None):
+    """업로드된 파일들을 자동 분석하여 적절한 방식으로 처리"""
+
+    # 파일 분석
+    process_type, image_files = analyze_uploaded_files(uploaded_files)
+
+    if process_type == "none":
+        st.error("처리할 수 있는 이미지 파일이 없습니다.")
+        return None
+
+    elif process_type == "single":
+        # 단일 이미지 처리
+        st.info("단일 이미지 처리 모드")
+        return process_single_image(image_files[0], vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer)
+
+    else:  # batch
+        # 배치 처리
+        st.info(f"배치 처리 모드 ({len(image_files)}개 이미지)")
+        return process_batch_files(image_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode)
+
+def process_batch_files(image_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode):
+    """간단한 배치 처리 (기존 배치 처리 로직 단순화)"""
+
+    # 임시 디렉토리 생성
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        input_dir = temp_path / "input"
+        output_dir = temp_path / "output"
+
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        # 업로드된 파일들을 임시 디렉토리에 저장
+        for i, file in enumerate(image_files):
+            safe_name = getattr(file, 'name', f'image_{i:04d}.jpg')
+            safe_name = safe_name.replace('/', '_').replace('\\', '_')
+            file_path = input_dir / f"image_{i:04d}_{safe_name}"
+            with open(file_path, 'wb') as f:
+                f.write(file.getvalue())
+
+        # 배치 프로세서 설정 및 실행
+        processor = BatchProcessor(max_workers=4, use_multiprocessing=False)
+        processor.configure_processing(
+            detection_mode=detection_mode,
+            preprocessing_mode=preprocessing_mode,
+            min_confidence=0.3,
+            chunk_size=10
+        )
+
+        # 진행률 표시
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        def progress_callback(processed: int, total: int, data: dict):
+            progress = processed / total if total > 0 else 0
+            progress_bar.progress(progress)
+            status_text.text(f"처리 중... {processed}/{total} ({progress*100:.1f}%)")
+
+        processor.set_progress_callback(progress_callback)
+
+        try:
+            start_time = time.time()
+            summary = processor.process_directory(str(input_dir), output_dir=str(output_dir))
+            end_time = time.time()
+
+            # 결과 표시
+            display_batch_results(summary, end_time - start_time, output_dir)
+
+            return {
+                'type': 'batch',
+                'summary': summary,
+                'processing_time': end_time - start_time,
+                'success': summary.processed_files > 0
+            }
+
+        except Exception as e:
+            st.error(f"배치 처리 중 오류 발생: {str(e)}")
+            return None
+
+def process_single_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None):
 
     """
     A. 차량 감지 후 번호판 감지
@@ -273,70 +317,26 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
     
     results = []
 
-    # 감지 모드 분기 처리
-    if detection_mode == "차량 감지 후 번호판 감지":
-        # 차량 감지
-        vehicle_boxes = vehicle_detector.detect(image_np)
-        
-        for vehicle_box in vehicle_boxes:
-            # 차량 영역 추출
-            vehicle_image = image_np[vehicle_box[1]:vehicle_box[3], vehicle_box[0]:vehicle_box[2]]
-            
-            # 번호판 감지
-            plate_boxes = plate_detector.detect(vehicle_image)
-            
-            for plate_box in plate_boxes:
-                # 번호판 영역 추출
-                plate_image = vehicle_image[plate_box[1]:plate_box[3], plate_box[0]:plate_box[2]]
-                
-                # 번호판 전처리
-                processed_plate = image_processor.process(plate_image)
-                
-                # OCR 처리 및 분류 (고급 전처리 적용)
-                ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
-                plate_text = ocr_result['text']
-                confidence = ocr_result['confidence']
-                classification = ocr_result['classification']
-                validation = ocr_result.get('validation', {})
-                preprocessing_info = ocr_result.get('preprocessing_info', {})
-                
-                # 결과 저장
-                global_plate_box = [
-                    vehicle_box[0] + plate_box[0], 
-                    vehicle_box[1] + plate_box[1],
-                    vehicle_box[0] + plate_box[2], 
-                    vehicle_box[1] + plate_box[3]
-                ]
-                
-                results.append({
-                    "vehicle_box": vehicle_box,
-                    "plate_box": global_plate_box,
-                    "plate_text": plate_text,
-                    "confidence": confidence,
-                    "classification": classification,
-                    "validation": validation,
-                    "preprocessing_info": preprocessing_info
-                })
-    
-    elif detection_mode == "직접 번호판 감지":
-        # 이미지에서 직접 번호판 감지
-        plate_boxes = plate_detector.detect(image_np)
-        
+    # 자동 감지 모드 처리
+    # 1단계: 직접 번호판 감지
+    plate_boxes = plate_detector.detect(image_np)
+
+    if plate_boxes:  # 번호판이 감지되면
         for plate_box in plate_boxes:
             # 번호판 영역 추출
             plate_image = image_np[plate_box[1]:plate_box[3], plate_box[0]:plate_box[2]]
-            
+
             # 번호판 전처리
             processed_plate = image_processor.process(plate_image)
-            
-            # OCR 처리 및 분류
+
+            # OCR 처리 및 분류 (고급 전처리 적용)
             ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
             plate_text = ocr_result['text']
             confidence = ocr_result['confidence']
             classification = ocr_result['classification']
             validation = ocr_result.get('validation', {})
             preprocessing_info = ocr_result.get('preprocessing_info', {})
-            
+
             # 결과 저장
             results.append({
                 "vehicle_box": None,  # 차량 박스 정보 없음
@@ -347,78 +347,49 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
                 "validation": validation,
                 "preprocessing_info": preprocessing_info
             })
-    
-    else:  # 자동 감지 모드
-        # 1단계: 직접 번호판 감지
-        plate_boxes = plate_detector.detect(image_np)
-        
-        if plate_boxes:  # 번호판이 감지되면
+    else:  # 번호판이 직접 감지되지 않으면 차량 감지 후 번호판 감지 시도
+        # 차량 감지
+        vehicle_boxes = vehicle_detector.detect(image_np)
+
+        for vehicle_box in vehicle_boxes:
+            # 차량 영역 추출
+            vehicle_image = image_np[vehicle_box[1]:vehicle_box[3], vehicle_box[0]:vehicle_box[2]]
+
+            # 번호판 감지
+            plate_boxes = plate_detector.detect(vehicle_image)
+
             for plate_box in plate_boxes:
                 # 번호판 영역 추출
-                plate_image = image_np[plate_box[1]:plate_box[3], plate_box[0]:plate_box[2]]
-                
+                plate_image = vehicle_image[plate_box[1]:plate_box[3], plate_box[0]:plate_box[2]]
+
                 # 번호판 전처리
                 processed_plate = image_processor.process(plate_image)
-                
-                # OCR 처리 및 분류 (고급 전처리 적용)
+
+                # OCR 처리 및 분류
                 ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
                 plate_text = ocr_result['text']
                 confidence = ocr_result['confidence']
                 classification = ocr_result['classification']
                 validation = ocr_result.get('validation', {})
                 preprocessing_info = ocr_result.get('preprocessing_info', {})
-                
+
                 # 결과 저장
+                global_plate_box = [
+                    vehicle_box[0] + plate_box[0],
+                    vehicle_box[1] + plate_box[1],
+                    vehicle_box[0] + plate_box[2],
+                    vehicle_box[1] + plate_box[3]
+                ]
+
                 results.append({
-                    "vehicle_box": None,  # 차량 박스 정보 없음
-                    "plate_box": plate_box,
+                    "vehicle_box": vehicle_box,
+                    "plate_box": global_plate_box,
                     "plate_text": plate_text,
                     "confidence": confidence,
                     "classification": classification,
                     "validation": validation,
                     "preprocessing_info": preprocessing_info
                 })
-        else:  # 번호판이 직접 감지되지 않으면 차량 감지 후 번호판 감지 시도
-            # 차량 감지
-            vehicle_boxes = vehicle_detector.detect(image_np)
-            
-            for vehicle_box in vehicle_boxes:
-                # 차량 영역 추출
-                vehicle_image = image_np[vehicle_box[1]:vehicle_box[3], vehicle_box[0]:vehicle_box[2]]
-                
-                # 번호판 감지
-                plate_boxes = plate_detector.detect(vehicle_image)
-                
-                for plate_box in plate_boxes:
-                    # 번호판 영역 추출
-                    plate_image = vehicle_image[plate_box[1]:plate_box[3], plate_box[0]:plate_box[2]]
-                    
-                    # 번호판 전처리
-                    processed_plate = image_processor.process(plate_image)
-                    
-                    # OCR 처리 및 분류
-                    ocr_result = ocr_engine.recognize_with_classification(processed_plate)
-                    plate_text = ocr_result['text']
-                    confidence = ocr_result['confidence']
-                    classification = ocr_result['classification']
-                    
-                    # 결과 저장
-                    global_plate_box = [
-                        vehicle_box[0] + plate_box[0], 
-                        vehicle_box[1] + plate_box[1],
-                        vehicle_box[0] + plate_box[2], 
-                        vehicle_box[1] + plate_box[3]
-                    ]
-                    
-                    results.append({
-                        "vehicle_box": vehicle_box,
-                        "plate_box": global_plate_box,
-                        "plate_text": plate_text,
-                        "confidence": confidence,
-                        "classification": classification,
-                        "validation": validation,
-                        "preprocessing_info": preprocessing_info
-                    })
     
     # 처리 종료 시간
     end_time = time.time()
@@ -580,63 +551,6 @@ def process_image(image_file, vehicle_detector, plate_detector, image_processor,
         'success': len(results) > 0
     }
 
-def process_batch_images(vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode):
-    """배치 처리 페이지 구현"""
-    st.header("📦 배치 이미지 처리")
-    st.write("여러 이미지를 한 번에 처리하여 번호판을 인식합니다.")
-    
-    # 배치 처리 설정
-    st.subheader("⚙️ 처리 설정")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        max_workers = st.number_input("동시 처리 수", min_value=1, max_value=16, value=4, 
-                                    help="동시에 처리할 이미지 수 (높을수록 빠르지만 메모리 사용량 증가)")
-        use_multiprocessing = st.checkbox("멀티프로세싱 사용", value=False,
-                                        help="CPU 집약적 작업에 효과적, 메모리 사용량 증가")
-        
-    with col2:
-        chunk_size = st.number_input("청크 크기", min_value=5, max_value=100, value=10,
-                                   help="한 번에 처리할 이미지 묶음 크기")
-        min_confidence = st.slider("최소 신뢰도", min_value=0.1, max_value=1.0, value=0.3, step=0.1,
-                                 help="이 값보다 낮은 신뢰도의 결과는 제외")
-    
-    # 파일 업로드 방식 선택
-    st.subheader("📁 이미지 업로드")
-    upload_method = st.radio("업로드 방식", ["다중 파일 선택", "ZIP 파일 업로드"], horizontal=True)
-    
-    uploaded_files = None
-    
-    if upload_method == "다중 파일 선택":
-        uploaded_files = st.file_uploader(
-            "이미지 파일들을 선택하세요",
-            type=["jpg", "jpeg", "png"],
-            accept_multiple_files=True,
-            help="Ctrl/Cmd + 클릭으로 여러 파일 선택 가능"
-        )
-        
-    elif upload_method == "ZIP 파일 업로드":
-        zip_file = st.file_uploader(
-            "이미지가 포함된 ZIP 파일을 업로드하세요",
-            type=["zip"],
-            help="ZIP 파일 내 이미지 파일들을 자동으로 추출하여 처리"
-        )
-        
-        if zip_file is not None:
-            # ZIP 파일 처리
-            uploaded_files = extract_images_from_zip(zip_file)
-    
-    if uploaded_files and len(uploaded_files) > 0:
-        st.success(f"총 {len(uploaded_files)}개의 이미지가 업로드되었습니다.")
-        
-        # 처리 시작 버튼
-        if st.button("🚀 배치 처리 시작", type="primary"):
-            process_batch_with_progress(
-                uploaded_files, vehicle_detector, plate_detector, 
-                image_processor, ocr_engine, detection_mode, preprocessing_mode,
-                max_workers, use_multiprocessing, chunk_size, min_confidence
-            )
 
 def extract_images_from_zip(zip_file):
     """ZIP 파일에서 이미지 파일들을 추출"""
@@ -671,80 +585,6 @@ def extract_images_from_zip(zip_file):
         
     return extracted_files
 
-def process_batch_with_progress(uploaded_files, vehicle_detector, plate_detector, 
-                              image_processor, ocr_engine, detection_mode, preprocessing_mode,
-                              max_workers, use_multiprocessing, chunk_size, min_confidence):
-    """진행률과 함께 배치 처리 실행"""
-    
-    # 임시 디렉토리 생성
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        input_dir = temp_path / "input"
-        output_dir = temp_path / "output"
-        
-        input_dir.mkdir()
-        output_dir.mkdir()
-        
-        # 업로드된 파일들을 임시 디렉토리에 저장
-        for i, file in enumerate(uploaded_files):
-            # 파일명에서 경로 분리자 제거하고 안전한 파일명 생성
-            safe_name = getattr(file, 'name', f'image_{i:04d}.jpg')
-            safe_name = safe_name.replace('/', '_').replace('\\', '_')
-            file_path = input_dir / f"image_{i:04d}_{safe_name}"
-            with open(file_path, 'wb') as f:
-                f.write(file.getvalue())
-        
-        # 배치 프로세서 설정
-        processor = BatchProcessor(max_workers=max_workers, use_multiprocessing=use_multiprocessing)
-        
-        # 처리 설정
-        processor.configure_processing(
-            detection_mode=detection_mode,
-            preprocessing_mode=preprocessing_mode,
-            min_confidence=min_confidence,
-            chunk_size=chunk_size
-        )
-        
-        # 진행률 표시를 위한 컨테이너
-        progress_container = st.container()
-        
-        # 진행률 콜백 함수
-        progress_data = {'processed': 0, 'total': 0}
-        
-        def progress_callback(processed: int, total: int, data: dict):
-            progress_data['processed'] = processed
-            progress_data['total'] = total
-            
-            # 진행률 계산
-            progress_percent = (processed / total * 100) if total > 0 else 0
-            
-            with progress_container:
-                # 진행률 바
-                st.progress(processed / total if total > 0 else 0)
-                
-                # 상세 정보
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("처리 완료", f"{processed}/{total}")
-                with col2:
-                    st.metric("진행률", f"{progress_percent:.1f}%")
-                with col3:
-                    st.metric("현재 청크", f"{data.get('current_chunk_size', 0)}개")
-        
-        processor.set_progress_callback(progress_callback)
-        
-        # 처리 시작
-        start_time = time.time()
-        
-        try:
-            summary = processor.process_directory(str(input_dir), output_dir=str(output_dir))
-            end_time = time.time()
-            
-            # 결과 표시
-            display_batch_results(summary, end_time - start_time, output_dir)
-            
-        except Exception as e:
-            st.error(f"배치 처리 중 오류 발생: {str(e)}")
 
 def display_batch_results(summary, processing_time, output_dir):
     """배치 처리 결과 표시"""
@@ -850,9 +690,6 @@ def display_batch_results(summary, processing_time, output_dir):
                 if len(failed_data) > 10:
                     st.write(f"... 및 {len(failed_data) - 10}개 더")
 
-# def process_video(video_file, vehicle_detector, plate_detector, image_processor, ocr_engine):
-#     # 비디오 처리 로직
-#     # 생략...
 
 if __name__ == "__main__":
     main()
