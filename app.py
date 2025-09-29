@@ -50,16 +50,16 @@ def main():
     
     # 감지 모드 (자동 감지 모드 고정)
     detection_mode = "자동 감지 모드(권장)"
-    
-    # 전처리 모드 선택
-    preprocessing_mode = st.sidebar.selectbox("이미지 전처리 모드", [
-        "auto", "high_quality", "balanced", "fast", "off"
-    ], index=0, help="auto: 자동 최적화, high_quality: 최고품질, balanced: 균형, fast: 빠른처리, off: 전처리 비활성화")
+
+    # 전처리 모드 (자동으로 설정)
+    preprocessing_mode = "auto"
     
     # 전처리 상세 옵션 (고급 사용자용)
     with st.sidebar.expander("고급 전처리 옵션"):
         show_preprocessing_info = st.checkbox("전처리 정보 표시", value=False)
         show_preprocessing_steps = st.checkbox("처리 단계 표시", value=False)
+        show_realtime_progress = st.checkbox("실시간 처리 과정 표시", value=True)
+        show_step_images = st.checkbox("단계별 이미지 표시", value=True)
     
     # 시스템 최적화기 초기화 (전역 캐시 사용)
     system_optimizer = get_system_optimizer()
@@ -140,7 +140,7 @@ def main():
         st.success(f"총 {len(uploaded_files)}개의 파일이 업로드되었습니다.")
 
         if st.button("🚀 처리 시작", type="primary"):
-            results = process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer)
+            results = process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer, show_realtime_progress, show_step_images)
 
             # 단일 이미지 처리 결과에 대한 Excel 다운로드 버튼
             if results and results.get('type') != 'batch' and OPENPYXL_AVAILABLE:
@@ -211,7 +211,7 @@ def analyze_uploaded_files(uploaded_files):
     else:
         return "none", []
 
-def process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None):
+def process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None, show_realtime_progress=True, show_step_images=True):
     """업로드된 파일들을 자동 분석하여 적절한 방식으로 처리"""
 
     # 파일 분석
@@ -224,7 +224,7 @@ def process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, ima
     elif process_type == "single":
         # 단일 이미지 처리
         st.info("단일 이미지 처리 모드")
-        return process_single_image(image_files[0], vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer)
+        return process_single_image(image_files[0], vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer, show_realtime_progress, show_step_images)
 
     else:  # batch
         # 배치 처리
@@ -290,7 +290,7 @@ def process_batch_files(image_files, vehicle_detector, plate_detector, image_pro
             st.error(f"배치 처리 중 오류 발생: {str(e)}")
             return None
 
-def process_single_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None):
+def process_single_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None, show_realtime_progress=True, show_step_images=True):
 
     """
     A. 차량 감지 후 번호판 감지
@@ -311,25 +311,56 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
     # 이미지 로드 및 처리
     image = Image.open(image_file)
     image_np = np.array(image) # 입력한 이미지 배열 변환
-    
+
     # 처리 시작 시간
     start_time = time.time()
-    
+
     results = []
+
+    # 실시간 진행 상황 표시
+    if show_realtime_progress:
+        st.subheader("처리 과정")
+        status_text = st.empty()
+        progress_bar = st.progress(0)
+
+        # 진행 상태 업데이트 함수
+        def update_progress(step, total_steps, message):
+            progress = step / total_steps
+            progress_bar.progress(progress)
+            status_text.text(f"{message}")
+
+        update_progress(1, 6, "이미지 분석 시작")
 
     # 자동 감지 모드 처리
     # 1단계: 직접 번호판 감지
+    if show_realtime_progress:
+        update_progress(2, 6, "번호판 검출 중")
+
     plate_boxes = plate_detector.detect(image_np)
 
     if plate_boxes:  # 번호판이 감지되면
-        for plate_box in plate_boxes:
+        if show_realtime_progress:
+            update_progress(3, 6, f"{len(plate_boxes)}개의 번호판 발견")
+
+        for i, plate_box in enumerate(plate_boxes):
             # 번호판 영역 추출
             plate_image = image_np[plate_box[1]:plate_box[3], plate_box[0]:plate_box[2]]
 
             # 번호판 전처리
+            if show_realtime_progress:
+                update_progress(4, 6, f"번호판 {i+1} 이미지 전처리")
+
+            # 전처리 단계별 이미지 생성 (표시용)
+            preprocessing_steps = None
+            if show_step_images:
+                preprocessing_steps = image_processor.visualize_steps(plate_image)
+
             processed_plate = image_processor.process(plate_image)
 
             # OCR 처리 및 분류 (고급 전처리 적용)
+            if show_realtime_progress:
+                update_progress(5, 6, f"번호판 {i+1} OCR 인식")
+
             ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
             plate_text = ocr_result['text']
             confidence = ocr_result['confidence']
@@ -345,27 +376,49 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
                 "confidence": confidence,
                 "classification": classification,
                 "validation": validation,
-                "preprocessing_info": preprocessing_info
+                "preprocessing_info": preprocessing_info,
+                "preprocessing_steps": preprocessing_steps  # 전처리 단계 이미지들
             })
     else:  # 번호판이 직접 감지되지 않으면 차량 감지 후 번호판 감지 시도
         # 차량 감지
+        if show_realtime_progress:
+            update_progress(2, 6, "차량 검출 중")
+
         vehicle_boxes = vehicle_detector.detect(image_np)
 
-        for vehicle_box in vehicle_boxes:
+        if vehicle_boxes:
+            if show_realtime_progress:
+                update_progress(3, 6, f"{len(vehicle_boxes)}개의 차량 발견")
+
+        for v_idx, vehicle_box in enumerate(vehicle_boxes):
             # 차량 영역 추출
             vehicle_image = image_np[vehicle_box[1]:vehicle_box[3], vehicle_box[0]:vehicle_box[2]]
 
             # 번호판 감지
+            if show_realtime_progress:
+                update_progress(3, 6, f"차량 {v_idx+1}에서 번호판 검출")
+
             plate_boxes = plate_detector.detect(vehicle_image)
 
-            for plate_box in plate_boxes:
+            for p_idx, plate_box in enumerate(plate_boxes):
                 # 번호판 영역 추출
                 plate_image = vehicle_image[plate_box[1]:plate_box[3], plate_box[0]:plate_box[2]]
 
                 # 번호판 전처리
+                if show_realtime_progress:
+                    update_progress(4, 6, f"차량 {v_idx+1}의 번호판 {p_idx+1} 이미지 전처리")
+
+                # 전처리 단계별 이미지 생성 (표시용)
+                preprocessing_steps = None
+                if show_step_images:
+                    preprocessing_steps = image_processor.visualize_steps(plate_image)
+
                 processed_plate = image_processor.process(plate_image)
 
                 # OCR 처리 및 분류
+                if show_realtime_progress:
+                    update_progress(5, 6, f"차량 {v_idx+1} 번호판 {p_idx+1} OCR 인식")
+
                 ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
                 plate_text = ocr_result['text']
                 confidence = ocr_result['confidence']
@@ -388,159 +441,149 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
                     "confidence": confidence,
                     "classification": classification,
                     "validation": validation,
-                    "preprocessing_info": preprocessing_info
+                    "preprocessing_info": preprocessing_info,
+                    "preprocessing_steps": preprocessing_steps  # 전처리 단계 이미지들
                 })
     
     # 처리 종료 시간
     end_time = time.time()
     processing_time = end_time - start_time
-    
+
+    # 처리 완료 표시
+    if show_realtime_progress:
+        if results:
+            update_progress(6, 6, f"처리 완료 - {len(results)}개의 번호판 인식")
+        else:
+            update_progress(6, 6, "처리 완료 - 번호판을 찾을 수 없음")
+
     # 감지 결과 표시
     if results:
-        # 결과 시각화
-        visualized_image = visualize_results(image_np, results)
-        
-        # 결과 표시
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("원본 이미지")
-            st.image(image, use_column_width=True)
-        with col2:
-            st.subheader("처리 결과")
-            st.image(visualized_image, use_column_width=True)
-        
-        # 인식된 번호판 표시
-        st.subheader("인식된 번호판")
-        for idx, result in enumerate(results):
-            col1, col2, col3 = st.columns([2, 2, 1])
-            
-            with col1:
-                st.write(f"**번호판 {idx+1}**: {result['plate_text']}")
-                # 유효성 검사 결과 표시
-                if 'validation' in result:
-                    validation = result['validation']
-                    if validation['is_valid']:
-                        st.success("✅ 형식 유효")
-                    else:
-                        st.warning(f"⚠️ 형식 오류: {', '.join(validation['errors'])}")
-            
-            with col2:
-                if 'classification' in result:
-                    plate_type = result['classification']['type'].value
-                    confidence = result['classification']['confidence']
-                    bg_color = result['classification']['background_color']
-                    st.write(f"**타입**: {plate_type}")
-                    st.write(f"**배경색**: {bg_color}")
-                
-            with col3:
-                if 'confidence' in result:
-                    st.write(f"**OCR 신뢰도**: {result['confidence']:.2f}")
-                if 'classification' in result:
-                    st.write(f"**분류 신뢰도**: {result['classification']['confidence']:.2f}")
-        
-        st.success(f"{len(results)}개의 번호판이 감지되었습니다.")
-        
-        # 전처리 정보 표시
-        if show_preprocessing_info and results:
-            st.subheader("이미지 전처리 정보")
-            for idx, result in enumerate(results):
-                preprocessing_info = result.get('preprocessing_info', {})
-                if preprocessing_info:
-                    with st.expander(f"번호판 {idx+1} 전처리 상세"):
-                        st.write(f"**전처리 모드**: {preprocessing_info.get('mode', 'unknown')}")
-                        
-                        # 품질 메트릭 표시
-                        quality_metrics = preprocessing_info.get('quality_metrics', {})
-                        if quality_metrics:
-                            st.write("**품질 메트릭**:")
-                            for metric_name, metric_value in quality_metrics.items():
-                                if isinstance(metric_value, (int, float)):
-                                    st.write(f"  - {metric_name}: {metric_value:.3f}")
-                        
-                        # 처리 단계 표시
-                        if show_preprocessing_steps:
-                            processing_steps = preprocessing_info.get('processing_steps', [])
-                            if processing_steps:
-                                st.write("**처리 단계**:")
-                                for step in processing_steps:
-                                    st.write(f"  - {step}")
-    else:
-        # 결과 표시
-        st.subheader("원본 이미지")
+        # 처리 결과 요약
+        st.subheader("처리 결과")
+
+        # 1. 원본 이미지 먼저 표시
+        st.write("**1. 원본 이미지**")
         st.image(image, use_column_width=True)
-        st.warning("번호판이 감지되지 않았습니다.")
+
+        # 2. 전처리 단계별 이미지 표시 (각 번호판별로)
+        if show_step_images and results:
+            for idx, result in enumerate(results):
+                preprocessing_steps = result.get('preprocessing_steps', {})
+                if preprocessing_steps:
+                    st.write(f"**2. 번호판 {idx+1} 전처리 단계**")
+
+                    # 전체 전처리 단계를 순서대로 표시
+                    step_sequence = [
+                        ('original', '원본 (추출)'),
+                        ('gray', '그레이스케일'),
+                        ('perspective_corrected', '원근 보정'),
+                        ('denoised', '노이즈 제거'),
+                        ('normalized', '크기 정규화'),
+                        ('enhanced_clahe', '대비 향상'),
+                        ('final_easyocr_input', '최종 OCR 입력')
+                    ]
+
+                    # 2행으로 배치 (위: 4개, 아래: 3개)
+                    # 첫 번째 행 (4개)
+                    cols_row1 = st.columns(4)
+                    for i, (key, name) in enumerate(step_sequence[:4]):
+                        if key in preprocessing_steps:
+                            with cols_row1[i]:
+                                st.caption(name)
+                                st.image(preprocessing_steps[key], use_column_width=True)
+
+                    # 두 번째 행 (3개)
+                    cols_row2 = st.columns([1, 1, 1, 1])  # 4개 컬럼 중 3개만 사용
+                    for i, (key, name) in enumerate(step_sequence[4:]):
+                        if key in preprocessing_steps:
+                            with cols_row2[i]:
+                                st.caption(name)
+                                st.image(preprocessing_steps[key], use_column_width=True)
+
+                    st.write("---")
+
+        # 3. 최종 감지 결과 이미지
+        visualized_image = visualize_results(image_np, results)
+        st.write("**3. 최종 감지 결과**")
+        st.image(visualized_image, use_column_width=True)
+
+        # 4. 인식된 번호판 정보
+        st.write("---")
+        st.write(f"**🚗 인식 결과: {len(results)}개의 번호판**")
+
+        for idx, result in enumerate(results):
+            with st.container():
+                # 메인 정보만 간단히 표시
+                col1, col2 = st.columns([3, 1])
+
+                with col1:
+                    # 번호판 텍스트를 크게 표시
+                    st.markdown(f"### 번호판 {idx+1}: `{result['plate_text']}`")
+
+                    # 번호판 타입과 유효성
+                    if 'classification' in result:
+                        plate_type = result['classification']['type'].value
+                        st.write(f"**타입**: {plate_type}")
+
+                    if 'validation' in result:
+                        validation = result['validation']
+                        if validation['is_valid']:
+                            st.success("✅ 유효한 번호판 형식")
+                        else:
+                            st.error(f"❌ 형식 오류: {', '.join(validation['errors'])}")
+
+                with col2:
+                    # 신뢰도 정보
+                    if 'confidence' in result:
+                        st.metric("OCR 신뢰도", f"{result['confidence']:.1f}")
+                    if 'classification' in result:
+                        st.metric("분류 신뢰도", f"{result['classification']['confidence']:.1f}")
+
+                if idx < len(results) - 1:  # 마지막이 아니면 구분선
+                    st.write("---")
+
+        # 상세 성능 정보 (접힘 메뉴)
+        with st.expander("📊 상세 성능 정보"):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("처리 시간", f"{processing_time:.2f}초")
+            with col2:
+                st.metric("전처리 모드", "자동 최적화")
+            with col3:
+                avg_confidence = sum([r['confidence'] for r in results]) / len(results)
+                st.metric("평균 OCR 신뢰도", f"{avg_confidence:.1f}")
+            with col4:
+                if hasattr(plate_detector, 'get_performance_stats'):
+                    perf_stats = plate_detector.get_performance_stats()
+                    estimated_fps = perf_stats.get('estimated_fps', 0)
+                    st.metric("예상 FPS", f"{estimated_fps:.1f}")
+    else:
+        # 번호판을 찾지 못한 경우
+        st.subheader("처리 결과")
+        st.image(image, use_column_width=True, caption="원본 이미지")
+        st.warning("❌ 번호판을 찾을 수 없습니다")
+
+        # 간단한 처리 정보만 표시
+        st.info(f"처리 시간: {processing_time:.2f}초")
     
-    # 성능 정보 표시
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("처리 시간", f"{processing_time:.2f}초")
-    with col2:
-        st.metric("전처리 모드", preprocessing_mode)
-    with col3:
-        if results:
-            avg_confidence = sum([r['confidence'] for r in results]) / len(results)
-            st.metric("평균 OCR 신뢰도", f"{avg_confidence:.2f}")
-        else:
-            st.metric("평균 OCR 신뢰도", "N/A")
-    with col4:
-        # 번호판 검출 성능 정보
-        if hasattr(plate_detector, 'get_performance_stats'):
-            perf_stats = plate_detector.get_performance_stats()
-            estimated_fps = perf_stats.get('estimated_fps', 0)
-            st.metric("예상 FPS", f"{estimated_fps:.1f}")
-        else:
-            st.metric("예상 FPS", "N/A")
-    
-    # 상세 성능 정보 (선택적 표시)
-    if show_preprocessing_info:
-        # 시스템 최적화 상세 정보
-        with st.expander("🔧 시스템 최적화 상세"):
+    # 고급 상세 정보 (매우 선택적)
+    if show_preprocessing_info and results:
+        with st.expander("🔧 고급 시스템 정보"):
             if system_optimizer:
                 system_report = system_optimizer.get_system_report()
-            else:
-                system_report = {"status": "시스템 최적화를 사용할 수 없습니다."}
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("**시스템 리소스**")
                 resources = system_report['system_resources']
-                st.write(f"CPU: {resources['cpu']['current_usage']:.1f}% ({resources['cpu']['total_cores']}코어)")
-                st.write(f"메모리: {resources['memory']['available_mb']:.0f}MB / {resources['memory']['total_mb']:.0f}MB")
-                if resources['gpu']['available']:
-                    st.write(f"GPU: {resources['gpu']['memory_used_mb']:.0f}MB / {resources['gpu']['memory_total_mb']:.0f}MB")
-                
-            with col2:
-                st.write("**성능 프로파일**")
-                profile = system_report['current_profile']
-                st.write(f"모드: {profile['name']}")
-                st.write(f"CPU 코어: {profile['cpu_cores_used']}개")
-                st.write(f"메모리 한도: {profile['max_memory_mb']}MB")
-                st.write(f"우선순위: {profile['priority']}")
-        
-        # 번호판 검출 성능
-        if hasattr(plate_detector, 'get_performance_stats'):
-            st.subheader("검출 성능 상세")
-            perf_stats = plate_detector.get_performance_stats()
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("**검출 통계**")
-                st.write(f"총 검출 수: {perf_stats.get('total_detections', 0)}")
-                st.write(f"평균 추론 시간: {perf_stats.get('avg_inference_time', 0):.3f}초")
-                
-            with col2:
-                optimization_info = perf_stats.get('optimization_info', {})
-                if optimization_info.get('korean_optimization', False):
-                    st.write("**최적화 정보**")
-                    st.write("✅ 한국 번호판 최적화 활성화")
-                    optimal_config = optimization_info.get('optimal_config', {})
-                    if optimal_config:
-                        st.write(f"모델 크기: {optimal_config.get('model_size', 'N/A')}")
-                        st.write(f"배치 크기: {optimal_config.get('batch_size', 'N/A')}")
-                        st.write(f"이미지 크기: {optimal_config.get('imgsz', 'N/A')}")
-                else:
-                    st.write("**최적화 정보**")
-                    st.write("⚠️ 기본 모드 (최적화 미적용)")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**시스템 리소스**")
+                    st.write(f"CPU: {resources['cpu']['current_usage']:.1f}%")
+                    st.write(f"메모리: {resources['memory']['current_usage_percent']:.1f}%")
+
+                with col2:
+                    st.write("**처리 모드**")
+                    profile = system_report['current_profile']
+                    st.write(f"현재: {profile['name']}")
+                    st.write(f"CPU 코어: {profile['cpu_cores_used']}개")
     
     # 처리 결과 반환 (Excel 출력용)
     return {
