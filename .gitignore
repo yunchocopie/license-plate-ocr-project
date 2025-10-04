@@ -38,6 +38,12 @@ outputs/
 logs/
 runs/
 
+# 디버그 파일
+data/debug/
+debug_*.jpg
+debug_*.png
+nul
+
 # 테스트 이미지 (선택적)
 # test_images/*.jpg
 
@@ -60,5 +66,8 @@ packages/
 temp/
 
 gitignore_folder/
+
+# 임시 분석 파일
+project_analysis.md
 .claude/
 CLAUDE.md

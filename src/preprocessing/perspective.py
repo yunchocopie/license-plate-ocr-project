@@ -57,7 +57,7 @@ class PerspectiveCorrection:
         rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
         rotated_image = cv2.warpAffine(
             img_to_process, rot_mat, img_to_process.shape[1::-1],
-            flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=255
+            flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=255
         )
 
         # 4. 회전 후 윤곽선 재검출
@@ -108,7 +108,7 @@ class PerspectiveCorrection:
             M = cv2.getPerspectiveTransform(src_pts, dst_pts)
             warped = cv2.warpPerspective(
                 rotated_image, M, (max_width, max_height),
-                borderMode=cv2.BORDER_CONSTANT, borderValue=255
+                flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=255
             )
             return warped
         except Exception as e:
