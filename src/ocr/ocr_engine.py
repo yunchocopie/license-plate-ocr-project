@@ -9,7 +9,11 @@ from .text_postprocess import TextPostProcessor # 상대 경로 유지
 from .korean_plate_postprocessor import KoreanPlatePostProcessor # 한국 번호판 전용 후처리기
 from ..classification.plate_classifier import PlateClassifier # 번호판 분류기 추가
 from ..preprocessing.image_processor import ImageProcessor # 고급 이미지 전처리 추가
+from ..utils.logger import setup_logger
 import config # config 파일 임포트
+
+# 로거 설정
+logger = setup_logger(__name__)
 
 class OCREngine:
     def __init__(self, languages=None, gpu=None, allowed_chars=None, model_storage_directory=None, download_enabled=None):
@@ -17,12 +21,12 @@ class OCREngine:
         self.gpu = gpu if gpu is not None else config.OCR_GPU
 
         if self.gpu and not torch.cuda.is_available():
-            print("WARNING: GPU not available or PyTorch not compiled with CUDA support, using CPU instead.")
+            logger.warning("GPU not available or PyTorch not compiled with CUDA support, using CPU instead.")
             self.gpu = False
         elif self.gpu and torch.cuda.is_available():
-            print("INFO: GPU available, using GPU for OCR.")
+            logger.info("GPU available, using GPU for OCR.")
         else:
-            print("INFO: Using CPU for OCR.")
+            logger.info("Using CPU for OCR.")
 
         # EasyOCR은 문자열 리스트를 허용 문자로 받음
         self.allowed_chars = allowed_chars if allowed_chars is not None else config.OCR_ALLOWED_CHARS
@@ -39,9 +43,7 @@ class OCREngine:
         if not os.path.exists(self.korean_model_path):
             raise FileNotFoundError(f"한국어 모델 파일을 찾을 수 없습니다: {self.korean_model_path}")
 
-        print(f"로컬 모델 사용:")
-        print(f"  CRAFT 모델: {self.craft_model_path}")
-        print(f"  한국어 모델: {self.korean_model_path}")
+        logger.info(f"로컬 모델 사용: CRAFT={self.craft_model_path}, Korean={self.korean_model_path}")
 
         # EasyOCR Reader 초기화 (로컬 모델 디렉토리 사용)
         self.reader = easyocr.Reader(
@@ -118,22 +120,22 @@ class OCREngine:
                     print(f"  결과 {i+1}: 텍스트='{text}', 신뢰도={confidence:.3f}")
 
         except Exception as e:
-            print(f"OCR Error: {e}")
+            logger.error(f"OCR Error: {e}", exc_info=True)
             return "", 0.0
 
         if not results:
-            print("EasyOCR 결과 없음 - 예비 방법들 시도")
+            logger.warning("EasyOCR 결과 없음 - 예비 방법들 시도")
             # 디버깅용으로 전처리된 이미지 저장
             try:
                 debug_filename = f"debug_ocr_{uuid.uuid4().hex[:8]}.jpg"
                 debug_path = Path(config.DEBUG_DIR) / debug_filename
                 cv2.imwrite(str(debug_path), processed_image)
-                print(f"디버그 이미지 저장: {debug_path}")
+                logger.info(f"디버그 이미지 저장: {debug_path}")
             except Exception as e:
-                print(f"디버그 이미지 저장 실패: {e}")
+                logger.error(f"디버그 이미지 저장 실패: {e}")
 
             # 예비 방법 0: 허용문자 제한 없이 시도
-            print("허용문자 제한 없이 OCR 시도")
+            logger.info("허용문자 제한 없이 OCR 시도")
             try:
                 no_filter_results = self.reader.readtext(
                     processed_image,
@@ -189,7 +191,7 @@ class OCREngine:
     
     def _try_backup_ocr(self, image):
         """예비 OCR 방법들을 시도"""
-        print("예비 OCR 방법 시도 중...")
+        logger.info("예비 OCR 방법 시도 중...")
         
         # 방법 1: 이진화 + 노이즈 제거
         try:

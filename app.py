@@ -146,42 +146,52 @@ def main():
                 st.subheader("💾 결과 다운로드")
 
                 if st.button("📈 Excel 보고서 다운로드"):
-                    with st.spinner("Excel 파일 생성 중..."):
-                        # 임시 이미지 파일 저장
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
-                            tmp_file.write(uploaded_files[0].getvalue())
-                            temp_image_path = tmp_file.name
+                    temp_image_path = None
+                    excel_file = None
 
-                        # Excel 파일 생성
-                        excel_file = create_single_result_excel(
-                            temp_image_path,
-                            results.get('plates', []),
-                            "single_result.xlsx",
-                            include_image=True,
-                            processing_time=results.get('processing_time', 0),
-                            detection_mode=detection_mode
-                        )
+                    try:
+                        with st.spinner("Excel 파일 생성 중..."):
+                            # 임시 이미지 파일 저장
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                                tmp_file.write(uploaded_files[0].getvalue())
+                                temp_image_path = tmp_file.name
 
-                        if excel_file and os.path.exists(excel_file):
-                            with open(excel_file, 'rb') as f:
-                                excel_data = f.read()
-
-                            st.download_button(
-                                label="📊 Excel 보고서 다운로드",
-                                data=excel_data,
-                                file_name=f"plate_analysis_{int(time.time())}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            # Excel 파일 생성
+                            excel_file = create_single_result_excel(
+                                temp_image_path,
+                                results.get('plates', []),
+                                "single_result.xlsx",
+                                include_image=True,
+                                processing_time=results.get('processing_time', 0),
+                                detection_mode=detection_mode
                             )
 
-                            # 임시 파일 정리
+                            if excel_file and os.path.exists(excel_file):
+                                with open(excel_file, 'rb') as f:
+                                    excel_data = f.read()
+
+                                st.download_button(
+                                    label="📊 Excel 보고서 다운로드",
+                                    data=excel_data,
+                                    file_name=f"plate_analysis_{int(time.time())}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                            else:
+                                st.error("Excel 파일 생성에 실패했습니다.")
+
+                    finally:
+                        # 임시 파일 정리 (반드시 실행)
+                        if temp_image_path and os.path.exists(temp_image_path):
                             try:
                                 os.unlink(temp_image_path)
+                            except OSError as e:
+                                print(f"임시 이미지 파일 삭제 실패: {e}")
+
+                        if excel_file and os.path.exists(excel_file):
+                            try:
                                 os.unlink(excel_file)
                             except OSError as e:
-                                # 파일 삭제 실패는 치명적이지 않으므로 경고만 출력
-                                print(f"임시 파일 삭제 실패 (무시 가능): {e}")
-                        else:
-                            st.error("Excel 파일 생성에 실패했습니다.")
+                                print(f"임시 Excel 파일 삭제 실패: {e}")
 
 def analyze_uploaded_files(uploaded_files):
     """업로드된 파일들을 분석하여 처리 방식 결정"""

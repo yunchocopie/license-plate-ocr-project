@@ -71,6 +71,57 @@ KOREAN_PLATE_OPTIMIZATION = {
 }
 
 # ==========================================
+# 이미지 처리 파라미터 (매직 넘버 중앙화)
+# ==========================================
+IMAGE_PROCESSING = {
+    # 원근 보정 파라미터
+    'perspective': {
+        'min_area_ratio': 0.01,
+        'max_area_ratio': 0.85,
+        'min_aspect_ratio': 1.2,
+        'max_aspect_ratio': 5.0
+    },
+    # 적응형 임계값 파라미터
+    'adaptive_threshold': {
+        'block_size_detection': 25,
+        'c_detection': 10,
+        'block_size_ocr': 15,
+        'c_ocr': 8
+    },
+    # 가우시안 블러 파라미터
+    'gaussian_blur': {
+        'kernel_size': (5, 5),
+        'sigma': 1.0,
+        'ocr_kernel_size': (3, 3)
+    },
+    # CLAHE 대비 향상 파라미터
+    'clahe': {
+        'clip_limit': 2.0,
+        'tile_grid_size': (8, 8)
+    },
+    # 노이즈 제거 파라미터
+    'denoise': {
+        'h': 5,
+        'template_window_size': 7,
+        'search_window_size': 21
+    },
+    # 모폴로지 연산 파라미터
+    'morphology': {
+        'close_kernel_size': (2, 2),
+        'open_kernel_size': (2, 1)
+    }
+}
+
+# 이미지 품질 임계값
+IMAGE_QUALITY_THRESHOLDS = {
+    'blur_measure_low': 50,
+    'blur_measure_high': 200,
+    'contrast_low': 30,
+    'contrast_high': 50,
+    'resolution_low': 2000
+}
+
+# ==========================================
 # OCR 엔진 설정
 # ==========================================
 OCR_LANGUAGES = ['ko', 'en']         # 인식 언어 (한국어 + 영어 지원)
