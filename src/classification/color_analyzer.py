@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Any
 from sklearn.cluster import KMeans
 import webcolors
 
@@ -101,7 +101,7 @@ class ColorAnalyzer:
             }
         }
 
-    def analyze_plate_colors(self, image: np.ndarray) -> Dict[str, any]:
+    def analyze_plate_colors(self, image: np.ndarray) -> Dict[str, Any]:
         """
         번호판 이미지의 배경색과 텍스트 색상을 종합적으로 분석
         
@@ -236,7 +236,7 @@ class ColorAnalyzer:
         
         return colors
     
-    def _classify_background_color(self, dominant_colors: List[Dict]) -> Dict[str, any]:
+    def _classify_background_color(self, dominant_colors: List[Dict]) -> Dict[str, Any]:
         """배경색 분류"""
         if not dominant_colors:
             return {'color': 'unknown', 'confidence': 0.0}
@@ -269,7 +269,7 @@ class ColorAnalyzer:
             'hsv': hsv.tolist()
         }
     
-    def _classify_text_color(self, dominant_colors: List[Dict]) -> Dict[str, any]:
+    def _classify_text_color(self, dominant_colors: List[Dict]) -> Dict[str, Any]:
         """텍스트 색상 분류"""
         if not dominant_colors:
             return {'color': 'unknown', 'confidence': 0.0}

@@ -127,8 +127,8 @@ class BatchProcessor:
         self.system_optimizer = None
         try:
             self.system_optimizer = SystemOptimizer()
-        except:
-            pass
+        except Exception as e:
+            print(f"시스템 최적화기 초기화 실패 (기본 설정 사용): {e}")
         
         # 모델 초기화 (메인 스레드에서)
         self.vehicle_detector = VehicleDetector()
@@ -152,7 +152,6 @@ class BatchProcessor:
         # 처리 설정
         self.processing_config = {
             'detection_mode': 'auto',  # 'vehicle_first', 'plate_direct', 'auto'
-            'preprocessing_mode': 'balanced',  # 'fast', 'balanced', 'high_quality'
             'min_confidence': 0.3,
             'max_retry_attempts': 3,
             'chunk_size': 10  # 메모리 관리를 위한 청크 크기
@@ -395,8 +394,9 @@ class BatchProcessor:
             image = cv2.imread(str(file_path))
             if image is None:
                 raise ValueError("이미지를 읽을 수 없습니다")
-            
+
             results = []
+            vehicle_boxes = []  # 변수 초기화
             
             # 감지 모드에 따른 처리
             if config['detection_mode'] == 'vehicle_first':
@@ -455,13 +455,19 @@ class BatchProcessor:
             valid_plates = 0
             
             for result in results:
-                if result['success'] and result['text']:
+                if result.get('success', False) and result.get('text'):
                     recognized_texts.append(result['text'])
-                    ocr_confidences.append(result['confidence'])
-                    plate_types.append(result['classification']['type'].value)
-                    plate_colors.append(result['classification']['background_color'])
-                    
-                    if result['validation']['is_valid']:
+                    ocr_confidences.append(result.get('confidence', 0.0))
+
+                    # 안전한 딕셔너리 접근
+                    classification = result.get('classification', {})
+                    plate_type = classification.get('type')
+                    if plate_type:
+                        plate_types.append(plate_type.value)
+                    plate_colors.append(classification.get('background_color', 'unknown'))
+
+                    validation = result.get('validation', {})
+                    if validation.get('is_valid', False):
                         valid_plates += 1
             
             processing_time = time.time() - start_time
@@ -472,7 +478,7 @@ class BatchProcessor:
                 file_size_mb=file_size_mb,
                 processing_time_sec=processing_time,
                 success=True,
-                vehicles_detected=len(vehicle_boxes) if 'vehicle_boxes' in locals() else 0,
+                vehicles_detected=len(vehicle_boxes),
                 plates_detected=len(results),
                 recognized_texts=recognized_texts,
                 ocr_confidences=ocr_confidences,
@@ -502,9 +508,8 @@ class BatchProcessor:
             
             # OCR 및 분류
             result = ocr_engine.recognize_with_classification(
-                processed_plate, 
-                min_confidence=config.get('min_confidence', 0.3),
-                preprocessing_mode=config.get('preprocessing_mode', 'balanced')
+                processed_plate,
+                min_confidence=config.get('min_confidence', 0.3)
             )
             
             return {

@@ -19,6 +19,11 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 MODEL_DIR = os.path.join(DATA_DIR, "models")
 RAW_DATA_DIR = os.path.join(DATA_DIR, "raw")
 PROCESSED_DATA_DIR = os.path.join(DATA_DIR, "processed")
+DEBUG_DIR = os.path.join(DATA_DIR, "debug")  # 디버그 이미지 저장 경로
+
+# 디버그 디렉토리가 없으면 생성
+if not os.path.exists(DEBUG_DIR):
+    os.makedirs(DEBUG_DIR, exist_ok=True)
 
 # ==========================================
 # 모델 파일 경로 설정
@@ -70,13 +75,17 @@ KOREAN_PLATE_OPTIMIZATION = {
 # ==========================================
 OCR_LANGUAGES = ['ko', 'en']         # 인식 언어 (한국어 + 영어 지원)
 OCR_GPU = True                        # GPU 사용 여부 (가능한 경우)
-OCR_ALLOWED_CHARS = '가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허고노도로모보소오조초코토포호구누두루무부수우주추쿠투푸후그느드르므브스으즈츠크트프흐기니디리미비시이지치키티피히루' + '0123456789'  # 허용된 문자 ('루' 포함)
+# 한국 번호판에서 사용되는 모든 한글 문자
+# 일반 번호판: 가나다라마바사아자차카타파하 + 거너더러머버서어저처커터퍼허 + 고노도로모보소오조초코토포호 + 구누두루무부수우주추쿠투푸후 + 그느드르므브스으즈츠크트프흐 + 기니디리미비시이지치키티피히
+# 지역명: 서울,부산,대구,인천,광주,대전,울산,세종,경기,강원,충북,충남,전북,전남,경북,경남,제주
+# 특수용도: 국,육,해,공,합 (군용), 외교,영사 (외교관용) 등
+OCR_ALLOWED_CHARS = '가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허고노도로모보소오조초코토포호구누두루무부수우주추쿠투푸후그느드르므브스으즈츠크트프흐기니디리미비시이지치키티피히경광국도로마배부산서인전제충울세종원북남제주외교영사국육해공합' + '0123456789'
 
 # EasyOCR 모델 설정
 DOWNLOAD_ENABLED = False              # 로컬 모델 사용 (download_models.py로 사전 다운로드된 모델 사용)
 
 # OCR 결과 신뢰도 임계값
-MIN_OCR_CONFIDENCE = 0.3              # 최소 OCR 신뢰도
+MIN_OCR_CONFIDENCE = 0.1              # 최소 OCR 신뢰도 (낮게 설정하여 더 많은 결과 허용)
 
 # ==========================================
 # 후처리 설정

@@ -3,6 +3,8 @@ import numpy as np
 import easyocr
 import torch
 import os
+import uuid
+from pathlib import Path
 from .text_postprocess import TextPostProcessor # 상대 경로 유지
 from .korean_plate_postprocessor import KoreanPlatePostProcessor # 한국 번호판 전용 후처리기
 from ..classification.plate_classifier import PlateClassifier # 번호판 분류기 추가
@@ -54,16 +56,16 @@ class OCREngine:
         self.plate_classifier = PlateClassifier()  # 번호판 분류기 초기화
         self.image_processor = ImageProcessor()  # 고급 이미지 전처리기 초기화
 
-    def recognize_with_confidence(self, image, min_confidence=None, use_advanced_preprocessing=True):
+    def recognize_with_confidence(self, image, min_confidence=None):
         min_confidence = min_confidence if min_confidence is not None else config.MIN_OCR_CONFIDENCE
-        # (기존 로직과 유사하게, recognize 메서드와 입력 이미지 처리 동일하게)
+
         if image is None or image.size == 0:
             return "", 0.0
 
         # 이미지 크기 검증 및 전처리
         height, width = image.shape[:2]
         print(f"입력 이미지 크기: {width}x{height}")
-        
+
         # 너무 작은 이미지는 확대
         if width < 100 or height < 30:
             print("이미지가 너무 작습니다. 확대 처리중...")
@@ -73,62 +75,92 @@ class OCREngine:
             image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
             print(f"확대 후 크기: {new_width}x{new_height}")
 
-        # 고급 전처리 적용 (자동 최적화)
-        if use_advanced_preprocessing:
-            processed_image = self.image_processor.auto_enhance(image)
-        else:
-            if image.dtype != np.uint8:
-                if np.max(image) <= 1.0 and (image.dtype == np.float32 or image.dtype == np.float64) :
-                    processed_image = (image * 255).astype(np.uint8)
-                else:
-                    processed_image = np.clip(image, 0, 255).astype(np.uint8)
-            else:
-                processed_image = image
+        # 단일 전처리 파이프라인 적용
+        processed_image = self.image_processor.process_standard(image)
 
         try:
             # 이미지 크기에 따라 EasyOCR 파라미터 조정
+            print(f"OCR 처리 시작: 이미지 크기 {width}x{height}")
+            print(f"허용 문자 수: {len(self.allowed_chars)}")
+            print(f"허용 문자 샘플: {self.allowed_chars[:50]}...")
+
             if height < 50 or width < 150:  # 작은 이미지
                 print("작은 이미지용 OCR 설정 사용")
                 results = self.reader.readtext(
-                    processed_image, 
-                    detail=1, 
-                    allowlist=self.allowed_chars, 
+                    processed_image,
+                    detail=1,
+                    allowlist=self.allowed_chars,
                     paragraph=False,
-                    width_ths=0.1,  # 매우 작은 문자도 인식
-                    height_ths=0.1,
-                    text_threshold=0.5,  # 텍스트 감지 임계값 낮춤
-                    low_text=0.2,  # 낮은 품질 텍스트도 허용
+                    width_ths=0.05,  # 매우 작은 문자도 인식 (더 낮게)
+                    height_ths=0.05,
+                    text_threshold=0.3,  # 텍스트 감지 임계값 더 낮춤
+                    low_text=0.1,  # 낮은 품질 텍스트도 허용
                     decoder='beamsearch'
                 )
             else:
+                print("일반 이미지용 OCR 설정 사용")
                 results = self.reader.readtext(
-                    processed_image, 
-                    detail=1, 
-                    allowlist=self.allowed_chars, 
+                    processed_image,
+                    detail=1,
+                    allowlist=self.allowed_chars,
                     paragraph=False,
-                    width_ths=0.3,  # 텍스트 폭 임계값 낮춤 (더 작은 문자 인식)
-                    height_ths=0.3,  # 텍스트 높이 임계값 낮춤
+                    width_ths=0.1,  # 텍스트 폭 임계값 더 낮춤
+                    height_ths=0.1,  # 텍스트 높이 임계값 더 낮춤
+                    text_threshold=0.3,  # 텍스트 감지 임계값 낮춤
+                    low_text=0.1,  # 낮은 품질 텍스트도 허용
                     decoder='beamsearch'  # 더 정확한 디코딩
                 )
+
+            print(f"EasyOCR 원시 결과 개수: {len(results) if results else 0}")
+            if results:
+                for i, result in enumerate(results):
+                    bbox, text, confidence = result
+                    print(f"  결과 {i+1}: 텍스트='{text}', 신뢰도={confidence:.3f}")
+
         except Exception as e:
             print(f"OCR Error: {e}")
             return "", 0.0
 
         if not results:
             print("EasyOCR 결과 없음 - 예비 방법들 시도")
-            # 디버깅용으로 전처리된 이미지 저장 (임시)
+            # 디버깅용으로 전처리된 이미지 저장
             try:
-                cv2.imwrite('/tmp/debug_ocr_image.jpg', processed_image)
-                print("디버그 이미지 저장: /tmp/debug_ocr_image.jpg")
-            except:
-                pass
-                
+                debug_filename = f"debug_ocr_{uuid.uuid4().hex[:8]}.jpg"
+                debug_path = Path(config.DEBUG_DIR) / debug_filename
+                cv2.imwrite(str(debug_path), processed_image)
+                print(f"디버그 이미지 저장: {debug_path}")
+            except Exception as e:
+                print(f"디버그 이미지 저장 실패: {e}")
+
+            # 예비 방법 0: 허용문자 제한 없이 시도
+            print("허용문자 제한 없이 OCR 시도")
+            try:
+                no_filter_results = self.reader.readtext(
+                    processed_image,
+                    detail=1,
+                    paragraph=False,
+                    width_ths=0.05,
+                    height_ths=0.05,
+                    text_threshold=0.2,
+                    low_text=0.1,
+                    decoder='beamsearch'
+                )
+                print(f"허용문자 제한 없는 결과: {len(no_filter_results) if no_filter_results else 0}개")
+                if no_filter_results:
+                    for i, result in enumerate(no_filter_results):
+                        bbox, text, confidence = result
+                        print(f"  제한없음 결과 {i+1}: 텍스트='{text}', 신뢰도={confidence:.3f}")
+                    results = no_filter_results  # 허용문자 제한 없는 결과 사용
+            except Exception as e:
+                print(f"허용문자 제한 없는 OCR 실패: {e}")
+
             # 예비 방법 1: 다른 전처리로 재시도
-            backup_results = self._try_backup_ocr(processed_image)
-            if backup_results:
-                results = backup_results
-            else:
-                return "", 0.0
+            if not results:
+                backup_results = self._try_backup_ocr(processed_image)
+                if backup_results:
+                    results = backup_results
+                else:
+                    return "", 0.0
 
         # 작은 이미지의 경우 신뢰도 기준을 낮춤
         actual_min_confidence = min_confidence
@@ -200,22 +232,21 @@ class OCREngine:
             
         return None
 
-    def recognize_korean_license_plate(self, image, use_advanced_preprocessing=True):
+    def recognize_korean_license_plate(self, image):
         # 이 함수는 recognize_with_confidence를 사용하므로 별도 수정은 적음
         # 다만, TextPostProcessor의 format_korean_license_plate가 중요
-        text, confidence = self.recognize_with_confidence(image, use_advanced_preprocessing=use_advanced_preprocessing)
+        text, confidence = self.recognize_with_confidence(image)
         plate_text = self.post_processor.format_korean_license_plate(text)
         return plate_text
     
-    def recognize_with_classification(self, image, min_confidence=None, preprocessing_mode='auto'):
+    def recognize_with_classification(self, image, min_confidence=None):
         """
-        번호판 인식과 동시에 타입 분류 수행 (고급 전처리 포함)
-        
+        번호판 인식과 동시에 타입 분류 수행
+
         Args:
             image: 번호판 이미지 (numpy array)
             min_confidence: 최소 OCR 신뢰도
-            preprocessing_mode: 'auto', 'fast', 'balanced', 'high_quality', 'off'
-            
+
         Returns:
             dict: {
                 'text': 인식된 텍스트,
@@ -225,42 +256,24 @@ class OCREngine:
                 'preprocessing_info': 전처리 정보
             }
         """
-        # 고급 전처리 적용
-        preprocessing_info = {}
-        if preprocessing_mode == 'auto':
-            enhanced_image = self.image_processor.auto_enhance(image)
-            preprocessing_info['mode'] = 'auto_enhanced'
-        elif preprocessing_mode in ['fast', 'balanced', 'high_quality']:
-            result = self.image_processor.process_advanced(image, quality_mode=preprocessing_mode)
-            enhanced_image = result['processed_image']
-            preprocessing_info = {
-                'mode': preprocessing_mode,
-                'analysis': result.get('analysis', {}),
-                'quality_metrics': result.get('quality_metrics', {}),
-                'processing_steps': result.get('processing_steps', [])
-            }
-        else:  # preprocessing_mode == 'off'
-            enhanced_image = image
-            preprocessing_info['mode'] = 'disabled'
-        
-        # OCR 수행 (전처리된 이미지 사용)
-        text, confidence = self.recognize_with_confidence(enhanced_image, min_confidence, use_advanced_preprocessing=False)
-        
+        # OCR 수행 (단일 전처리 적용)
+        text, confidence = self.recognize_with_confidence(image, min_confidence)
+
         # 번호판 분류 수행 (원본 이미지 사용 - 색상 분석을 위해)
         classification = self.plate_classifier.classify_plate(image, text)
-        
+
         # 한국 번호판 전용 후처리 적용
         processed_text = self.korean_postprocessor.process_by_plate_type(text, classification['type'])
-        
+
         # 형식 유효성 검사
         validation = self.korean_postprocessor.validate_format(processed_text, classification['type'])
-        
+
         return {
             'text': processed_text,
             'confidence': confidence,
             'classification': classification,
             'validation': validation,
-            'preprocessing_info': preprocessing_info
+            'preprocessing_info': {'mode': 'standard'}
         }
     
     def _post_process_by_type(self, text, plate_type):

@@ -1,6 +1,6 @@
 import re
 import config
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from ..classification.plate_classifier import PlateType
 
 """
@@ -709,7 +709,7 @@ class KoreanPlatePostProcessor:
         else:
             return ''.join(groups)
     
-    def validate_format(self, text: str, plate_type: PlateType) -> Dict[str, any]:
+    def validate_format(self, text: str, plate_type: PlateType) -> Dict[str, Any]:
         """번호판 형식 유효성 검사"""
         validation = {
             'is_valid': False,

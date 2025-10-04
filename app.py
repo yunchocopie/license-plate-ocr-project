@@ -51,8 +51,7 @@ def main():
     # 감지 모드 (자동 감지 모드 고정)
     detection_mode = "자동 감지 모드(권장)"
 
-    # 전처리 모드 (자동으로 설정)
-    preprocessing_mode = "auto"
+    # 표준 전처리 적용 (모든 이미지 동일)
     
     # 전처리 상세 옵션 (고급 사용자용)
     with st.sidebar.expander("고급 전처리 옵션"):
@@ -140,7 +139,7 @@ def main():
         st.success(f"총 {len(uploaded_files)}개의 파일이 업로드되었습니다.")
 
         if st.button("🚀 처리 시작", type="primary"):
-            results = process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer, show_realtime_progress, show_step_images)
+            results = process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer, show_realtime_progress, show_step_images)
 
             # 단일 이미지 처리 결과에 대한 Excel 다운로드 버튼
             if results and results.get('type') != 'batch' and OPENPYXL_AVAILABLE:
@@ -178,8 +177,9 @@ def main():
                             try:
                                 os.unlink(temp_image_path)
                                 os.unlink(excel_file)
-                            except:
-                                pass
+                            except OSError as e:
+                                # 파일 삭제 실패는 치명적이지 않으므로 경고만 출력
+                                print(f"임시 파일 삭제 실패 (무시 가능): {e}")
                         else:
                             st.error("Excel 파일 생성에 실패했습니다.")
 
@@ -211,7 +211,7 @@ def analyze_uploaded_files(uploaded_files):
     else:
         return "none", []
 
-def process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None, show_realtime_progress=True, show_step_images=True):
+def process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None, show_realtime_progress=True, show_step_images=True):
     """업로드된 파일들을 자동 분석하여 적절한 방식으로 처리"""
 
     # 파일 분석
@@ -224,14 +224,14 @@ def process_uploaded_files(uploaded_files, vehicle_detector, plate_detector, ima
     elif process_type == "single":
         # 단일 이미지 처리
         st.info("단일 이미지 처리 모드")
-        return process_single_image(image_files[0], vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer, show_realtime_progress, show_step_images)
+        return process_single_image(image_files[0], vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, show_preprocessing_info, show_preprocessing_steps, system_optimizer, show_realtime_progress, show_step_images)
 
     else:  # batch
         # 배치 처리
         st.info(f"배치 처리 모드 ({len(image_files)}개 이미지)")
-        return process_batch_files(image_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode)
+        return process_batch_files(image_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode)
 
-def process_batch_files(image_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode):
+def process_batch_files(image_files, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode):
     """간단한 배치 처리 (기존 배치 처리 로직 단순화)"""
 
     # 임시 디렉토리 생성
@@ -255,7 +255,6 @@ def process_batch_files(image_files, vehicle_detector, plate_detector, image_pro
         processor = BatchProcessor(max_workers=4, use_multiprocessing=False)
         processor.configure_processing(
             detection_mode=detection_mode,
-            preprocessing_mode=preprocessing_mode,
             min_confidence=0.3,
             chunk_size=10
         )
@@ -290,7 +289,7 @@ def process_batch_files(image_files, vehicle_detector, plate_detector, image_pro
             st.error(f"배치 처리 중 오류 발생: {str(e)}")
             return None
 
-def process_single_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, preprocessing_mode='auto', show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None, show_realtime_progress=True, show_step_images=True):
+def process_single_image(image_file, vehicle_detector, plate_detector, image_processor, ocr_engine, detection_mode, show_preprocessing_info=False, show_preprocessing_steps=False, system_optimizer=None, show_realtime_progress=True, show_step_images=True):
 
     """
     A. 차량 감지 후 번호판 감지
@@ -350,10 +349,10 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
             if show_realtime_progress:
                 update_progress(4, 6, f"번호판 {i+1} 이미지 전처리")
 
-            # 전처리 단계별 이미지 생성 (표시용)
+            # 전처리 단계별 이미지 생성 (블로그 방식 적용)
             preprocessing_steps = None
             if show_step_images:
-                preprocessing_steps = image_processor.visualize_steps(plate_image)
+                preprocessing_steps = image_processor.visualize_steps_opencv_method(plate_image)
 
             processed_plate = image_processor.process(plate_image)
 
@@ -361,7 +360,7 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
             if show_realtime_progress:
                 update_progress(5, 6, f"번호판 {i+1} OCR 인식")
 
-            ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
+            ocr_result = ocr_engine.recognize_with_classification(processed_plate)
             plate_text = ocr_result['text']
             confidence = ocr_result['confidence']
             classification = ocr_result['classification']
@@ -408,10 +407,10 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
                 if show_realtime_progress:
                     update_progress(4, 6, f"차량 {v_idx+1}의 번호판 {p_idx+1} 이미지 전처리")
 
-                # 전처리 단계별 이미지 생성 (표시용)
+                # 전처리 단계별 이미지 생성 (블로그 방식 적용)
                 preprocessing_steps = None
                 if show_step_images:
-                    preprocessing_steps = image_processor.visualize_steps(plate_image)
+                    preprocessing_steps = image_processor.visualize_steps_opencv_method(plate_image)
 
                 processed_plate = image_processor.process(plate_image)
 
@@ -419,7 +418,7 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
                 if show_realtime_progress:
                     update_progress(5, 6, f"차량 {v_idx+1} 번호판 {p_idx+1} OCR 인식")
 
-                ocr_result = ocr_engine.recognize_with_classification(processed_plate, preprocessing_mode=preprocessing_mode)
+                ocr_result = ocr_engine.recognize_with_classification(processed_plate)
                 plate_text = ocr_result['text']
                 confidence = ocr_result['confidence']
                 classification = ocr_result['classification']
@@ -472,31 +471,45 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
                 if preprocessing_steps:
                     st.write(f"**2. 번호판 {idx+1} 전처리 단계**")
 
-                    # 전체 전처리 단계를 순서대로 표시
+                    # 전체 전처리 파이프라인 순서 (A+B+C단계)
                     step_sequence = [
                         ('original', '원본 (추출)'),
-                        ('gray', '그레이스케일'),
-                        ('perspective_corrected', '원근 보정'),
-                        ('denoised', '노이즈 제거'),
-                        ('normalized', '크기 정규화'),
-                        ('enhanced_clahe', '대비 향상'),
-                        ('final_easyocr_input', '최종 OCR 입력')
+                        ('gray', 'A1. 그레이스케일'),
+                        ('gaussian_blur', 'A2. 가우시안 블러'),
+                        ('warped', 'A3. 원근 보정'),
+                        ('adaptive_detection', 'A4. 적응형 임계값(탐지)'),
+                        ('contours', 'A5. 윤곽선 검출 (시각화용)'),
+                        ('ocr_blur', 'B1. OCR 블러'),
+                        ('adaptive_ocr', 'B2. 적응형 임계값(OCR)'),
+                        ('ocr_denoised', 'C1. 노이즈 제거'),
+                        ('ocr_enhanced', 'C2. 대비 향상(CLAHE)'),
+                        ('ocr_sharpened', 'C3. 샤프닝'),
+                        ('ocr_binary', 'C4. 최종 이진화'),
+                        ('ocr_final', 'C5. 모폴로지 정리')
                     ]
 
-                    # 2행으로 배치 (위: 4개, 아래: 3개)
-                    # 첫 번째 행 (4개)
-                    cols_row1 = st.columns(4)
-                    for i, (key, name) in enumerate(step_sequence[:4]):
+                    # 3행으로 배치 (5+5+3 구성)
+                    # 첫 번째 행 - A단계 (5개)
+                    cols_row1 = st.columns(5)
+                    for i, (key, name) in enumerate(step_sequence[:5]):
                         if key in preprocessing_steps:
                             with cols_row1[i]:
                                 st.caption(name)
                                 st.image(preprocessing_steps[key], use_column_width=True)
 
-                    # 두 번째 행 (3개)
-                    cols_row2 = st.columns([1, 1, 1, 1])  # 4개 컬럼 중 3개만 사용
-                    for i, (key, name) in enumerate(step_sequence[4:]):
+                    # 두 번째 행 - A단계 마지막 + B단계 (5개)
+                    cols_row2 = st.columns(5)
+                    for i, (key, name) in enumerate(step_sequence[5:10]):
                         if key in preprocessing_steps:
                             with cols_row2[i]:
+                                st.caption(name)
+                                st.image(preprocessing_steps[key], use_column_width=True)
+
+                    # 세 번째 행 - C단계 (3개)
+                    cols_row3 = st.columns(3)
+                    for i, (key, name) in enumerate(step_sequence[10:]):
+                        if key in preprocessing_steps:
+                            with cols_row3[i]:
                                 st.caption(name)
                                 st.image(preprocessing_steps[key], use_column_width=True)
 
