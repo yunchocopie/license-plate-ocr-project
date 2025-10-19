@@ -8,5 +8,12 @@ from .image_processor import ImageProcessor
 from .blur_correction import BlurCorrection
 from .perspective import PerspectiveCorrection
 from .normalize import Normalize
+from .character_segmentation import CharacterSegmentation
 
-__all__ = ['ImageProcessor', 'BlurCorrection', 'PerspectiveCorrection', 'Normalize']
+__all__ = [
+    'ImageProcessor',
+    'BlurCorrection',
+    'PerspectiveCorrection',
+    'Normalize',
+    'CharacterSegmentation'
+]

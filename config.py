@@ -71,6 +71,22 @@ KOREAN_PLATE_OPTIMIZATION = {
 }
 
 # ==========================================
+# 문자 영역 추출 (Character Segmentation) 설정
+# ==========================================
+# Contour 기반 문자 영역 추출 활성화 여부
+ENABLE_CHAR_SEGMENTATION = True
+
+# 문자 영역 추출 모드
+CHAR_SEGMENTATION_MODE = 'always'  # 'always', 'never', 'adaptive' (이미지 품질에 따라)
+
+# 품질 기반 적응형 모드 임계값
+CHAR_SEGMENTATION_THRESHOLDS = {
+    'blur_threshold': 100,           # 블러 측정값 < 100이면 Contour 방식 사용
+    'complex_background_threshold': 0.3,  # 배경 복잡도 > 0.3이면 Contour 방식 사용
+    'noise_threshold': 30            # 노이즈 레벨 > 30이면 Contour 방식 사용
+}
+
+# ==========================================
 # 이미지 처리 파라미터 (매직 넘버 중앙화)
 # ==========================================
 IMAGE_PROCESSING = {

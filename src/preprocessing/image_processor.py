@@ -4,6 +4,7 @@ from .blur_correction import BlurCorrection
 from .perspective import PerspectiveCorrection
 from .normalize import Normalize
 from .advanced_enhancement import AdvancedImageProcessor
+from .character_segmentation import CharacterSegmentation
 import config
 
 """
@@ -24,6 +25,7 @@ class ImageProcessor:
         self.perspective_corrector = PerspectiveCorrection()
         self.normalizer = Normalize(target_size=config.PLATE_SIZE)
         self.advanced_processor = AdvancedImageProcessor()  # 고급 전처리 프로세서
+        self.char_segmenter = None  # 문자 영역 추출기 (필요시 생성)
         
         # 번호판 타입별 최적화 설정
         self.plate_type_configs = {
@@ -171,7 +173,7 @@ class ImageProcessor:
     def visualize_steps_opencv_method(self, image):
         """
         전체 전처리 파이프라인 시각화 (UI 표시용 + OCR 엔진 전처리 포함)
-        A단계: 번호판 탐지·정합 단계 + B단계: OCR 최적화 단계 + C단계: OCR 엔진 내부 전처리
+        A단계: 번호판 탐지·정합 단계 + B단계: 문자 영역 추출 및 배경 제거 + C단계: OCR 최적화
         """
         steps = {'original': image.copy()}
 
@@ -267,6 +269,45 @@ class ImageProcessor:
         cleaned_display = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2RGB)
         steps['ocr_final'] = cleaned_display
 
+        # === ⭐ D단계: 문자 영역 추출 및 배경 완전 제거 (실제 OCR 사용) ===
+        if config.ENABLE_CHAR_SEGMENTATION:
+            # CharacterSegmentation 사용
+            if self.char_segmenter is None:
+                from .character_segmentation import CharacterSegmentation
+                self.char_segmenter = CharacterSegmentation(plate_type='general')
+
+            # ⭐ C3 샤프닝 결과를 D단계 입력으로 사용 (최적 지점)
+            # C3 = 대비 향상 + 경계 선명화된 그레이스케일 이미지
+            # 연속톤 정보 유지 → Contour 검출 시 임계값 조절 가능
+            char_result = self.char_segmenter.extract_character_regions(sharpened)
+
+            # D0. Contour 검출용 이진화 이미지 표시
+            binary_for_contour = self.char_segmenter.preprocess_for_contour(sharpened)
+            steps['d0_binary_for_contour'] = cv2.cvtColor(binary_for_contour, cv2.COLOR_GRAY2RGB) if len(binary_for_contour.shape) == 2 else binary_for_contour
+
+            if char_result['success']:
+                # D1. 문자 검출 박스 표시
+                if 'original_with_boxes' in char_result:
+                    steps['d1_char_detection'] = char_result['original_with_boxes']
+
+                # D2. 배경 제거된 전체 이미지
+                if 'clean_full_image' in char_result:
+                    clean_full = char_result['clean_full_image']
+                    steps['d2_background_removed_full'] = cv2.cvtColor(clean_full, cv2.COLOR_GRAY2RGB) if len(clean_full.shape) == 2 else clean_full
+
+                # D3. ⭐ ROI 크롭 + 배경 제거 (실제 OCR 입력)
+                if char_result['roi_image'] is not None:
+                    roi_clean = char_result['roi_image']
+                    steps['d3_final_ocr_input'] = cv2.cvtColor(roi_clean, cv2.COLOR_GRAY2RGB) if len(roi_clean.shape) == 2 else roi_clean
+            else:
+                # 실패해도 에러 정보 표시
+                error_msg = char_result.get('error', 'Unknown error')
+                # 에러 메시지를 이미지로 표시
+                error_image = np.ones((100, 400, 3), dtype=np.uint8) * 50
+                cv2.putText(error_image, f"D Stage Failed: {error_msg}", (10, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                steps['d1_char_detection_failed'] = error_image
+
         return steps
     
     def process_advanced(self, image, quality_mode: str = 'balanced') -> dict:
@@ -331,7 +372,155 @@ class ImageProcessor:
             result['quality_metrics'] = quality_metrics
         
         return result
-    
+
+    def _analyze_image_quality(self, image) -> dict:
+        """
+        이미지 품질 분석 (Contour 방식 사용 여부 결정용)
+
+        Args:
+            image: 입력 이미지
+
+        Returns:
+            dict: 품질 분석 결과
+        """
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+
+        # 블러 측정
+        blur_measure = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+        # 대비 측정
+        contrast = np.std(gray)
+
+        # 노이즈 레벨 추정 (에지 검출 후 작은 영역 개수)
+        edges = cv2.Canny(gray, 50, 150)
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        small_contours = sum(1 for c in contours if cv2.contourArea(c) < 10)
+        noise_level = small_contours / (gray.shape[0] * gray.shape[1]) * 1000
+
+        # 배경 복잡도 (히스토그램 분산)
+        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+        hist_normalized = hist / hist.sum()
+        hist_variance = np.var(hist_normalized)
+
+        return {
+            'blur_measure': blur_measure,
+            'contrast': contrast,
+            'noise_level': noise_level,
+            'background_complexity': hist_variance
+        }
+
+    def _should_use_char_segmentation(self, image) -> bool:
+        """
+        이미지 품질 분석을 통해 Contour 방식 사용 여부 결정
+
+        Args:
+            image: 입력 이미지
+
+        Returns:
+            bool: Contour 방식 사용 여부
+        """
+        mode = config.CHAR_SEGMENTATION_MODE
+
+        if mode == 'always':
+            return True
+        elif mode == 'never':
+            return False
+        elif mode == 'adaptive':
+            quality = self._analyze_image_quality(image)
+            thresholds = config.CHAR_SEGMENTATION_THRESHOLDS
+
+            # 다음 중 하나라도 해당하면 Contour 방식 사용
+            use_segmentation = (
+                quality['blur_measure'] < thresholds['blur_threshold'] or
+                quality['background_complexity'] > thresholds['complex_background_threshold'] or
+                quality['noise_level'] > thresholds['noise_threshold']
+            )
+
+            return use_segmentation
+        else:
+            return False
+
+    def process_with_char_segmentation(self, image, plate_type='general'):
+        """
+        ⭐ Contour 기반 문자 영역 추출 + 배경 완전 제거
+
+        핵심: 배경을 흰색으로 완전히 제거하고 순수 문자만 남긴 이미지를 OCR에 전달
+        → 최대 인식률 달성!
+
+        Args:
+            image: 입력 번호판 이미지
+            plate_type: 번호판 타입
+
+        Returns:
+            배경이 흰색이고 문자만 남은 전처리된 이미지
+        """
+        if image is None or image.size == 0:
+            return np.zeros(config.PLATE_SIZE[::-1], dtype=np.uint8)
+
+        # CharacterSegmentation 인스턴스 생성 (타입별)
+        if self.char_segmenter is None or self.char_segmenter.plate_type != plate_type:
+            self.char_segmenter = CharacterSegmentation(plate_type=plate_type)
+
+        # ⭐ 핵심: 문자 영역 추출 + 배경 완전 제거
+        result = self.char_segmenter.extract_character_regions(image)
+
+        if result['success'] and result['roi_image'] is not None:
+            # 배경이 흰색으로 제거된 깨끗한 이미지
+            clean_image = result['roi_image']
+        else:
+            # 실패 시 원본 이미지 사용
+            if len(image.shape) == 3:
+                clean_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                clean_image = image.copy()
+
+        # ⭐ 배경이 이미 완벽하게 제거되었으므로 추가 전처리 없이 바로 반환
+        # 문자는 검은색, 배경은 흰색으로 깨끗하게 분리된 상태
+        return clean_image
+
+    def process_adaptive(self, image, plate_type='general'):
+        """
+        적응형 전처리: 이미지 품질에 따라 Contour 방식 또는 기존 방식 선택
+
+        Args:
+            image: 입력 이미지
+            plate_type: 번호판 타입
+
+        Returns:
+            dict: {
+                'processed_image': 전처리된 이미지,
+                'method': 사용된 방법 ('contour' 또는 'standard'),
+                'quality_analysis': 품질 분석 결과 (adaptive 모드일 때만)
+            }
+        """
+        if not config.ENABLE_CHAR_SEGMENTATION:
+            # Contour 방식 비활성화된 경우
+            return {
+                'processed_image': self.process(image),
+                'method': 'standard',
+                'quality_analysis': None
+            }
+
+        # 품질 분석 및 방법 선택
+        use_segmentation = self._should_use_char_segmentation(image)
+        quality_analysis = self._analyze_image_quality(image) if config.CHAR_SEGMENTATION_MODE == 'adaptive' else None
+
+        if use_segmentation:
+            processed = self.process_with_char_segmentation(image, plate_type)
+            method = 'contour'
+        else:
+            processed = self.process(image)
+            method = 'standard'
+
+        return {
+            'processed_image': processed,
+            'method': method,
+            'quality_analysis': quality_analysis
+        }
+
     def auto_enhance(self, image) -> np.ndarray:
         """
         이미지 상태를 자동 분석하여 최적의 전처리 적용
