@@ -58,7 +58,19 @@ class OCREngine:
         self.plate_classifier = PlateClassifier()  # 번호판 분류기 초기화
         self.image_processor = ImageProcessor()  # 고급 이미지 전처리기 초기화
 
-    def recognize_with_confidence(self, image, min_confidence=None):
+    def recognize_with_confidence(self, image, min_confidence=None, use_char_segmentation=None, plate_type='general'):
+        """
+        OCR 인식 (신뢰도 포함)
+
+        Args:
+            image: 입력 이미지
+            min_confidence: 최소 신뢰도
+            use_char_segmentation: Contour 방식 사용 여부 (None이면 적응형)
+            plate_type: 번호판 타입
+
+        Returns:
+            tuple: (인식된 텍스트, 신뢰도)
+        """
         min_confidence = min_confidence if min_confidence is not None else config.MIN_OCR_CONFIDENCE
 
         if image is None or image.size == 0:
@@ -77,8 +89,24 @@ class OCREngine:
             image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
             print(f"확대 후 크기: {new_width}x{new_height}")
 
-        # 단일 전처리 파이프라인 적용
-        processed_image = self.image_processor.process_standard(image)
+        # 전처리 방식 선택
+        if use_char_segmentation is None:
+            # 적응형: 이미지 품질에 따라 자동 선택
+            if config.ENABLE_CHAR_SEGMENTATION:
+                result = self.image_processor.process_adaptive(image, plate_type=plate_type)
+                processed_image = result['processed_image']
+                print(f"적응형 전처리: {result['method']} 방식 선택됨")
+            else:
+                processed_image = self.image_processor.process_standard(image)
+                print("표준 전처리 적용")
+        elif use_char_segmentation:
+            # Contour 방식 강제 사용
+            processed_image = self.image_processor.process_with_char_segmentation(image, plate_type=plate_type)
+            print("Contour 기반 문자 추출 방식 사용")
+        else:
+            # 기존 방식 강제 사용
+            processed_image = self.image_processor.process_standard(image)
+            print("표준 전처리 사용")
 
         try:
             # 이미지 크기에 따라 EasyOCR 파라미터 조정
