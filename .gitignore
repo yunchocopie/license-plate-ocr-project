@@ -71,3 +71,6 @@ gitignore_folder/
 project_analysis.md
 .claude/
 CLAUDE.md
+
+# 문서 폴더 (개발 중 메모)
+docs/
