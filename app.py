@@ -481,7 +481,7 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
                 if preprocessing_steps:
                     st.write(f"**2. 번호판 {idx+1} 전처리 단계**")
 
-                    # 전체 전처리 파이프라인 순서 (A+B+C단계)
+                    # 전체 전처리 파이프라인 순서 (A+B+C+D단계)
                     step_sequence = [
                         ('original', '원본 (추출)'),
                         ('gray', 'A1. 그레이스케일'),
@@ -495,10 +495,15 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
                         ('ocr_enhanced', 'C2. 대비 향상(CLAHE)'),
                         ('ocr_sharpened', 'C3. 샤프닝'),
                         ('ocr_binary', 'C4. 최종 이진화'),
-                        ('ocr_final', 'C5. 모폴로지 정리')
+                        ('ocr_final', 'C5. 모폴로지 정리'),
+                        ('d0_binary_for_contour', 'D0. Contour용 이진화'),
+                        ('d1_char_detection', 'D1. 문자 검출'),
+                        ('d1_char_detection_failed', 'D1. 문자 검출 실패'),
+                        ('d2_background_removed_full', 'D2. 배경 제거'),
+                        ('d3_final_ocr_input', 'D3. 최종 OCR 입력')
                     ]
 
-                    # 3행으로 배치 (5+5+3 구성)
+                    # 4행으로 배치 (5+5+3+5 구성)
                     # 첫 번째 행 - A단계 (5개)
                     cols_row1 = st.columns(5)
                     for i, (key, name) in enumerate(step_sequence[:5]):
@@ -517,9 +522,17 @@ def process_single_image(image_file, vehicle_detector, plate_detector, image_pro
 
                     # 세 번째 행 - C단계 (3개)
                     cols_row3 = st.columns(3)
-                    for i, (key, name) in enumerate(step_sequence[10:]):
+                    for i, (key, name) in enumerate(step_sequence[10:13]):
                         if key in preprocessing_steps:
                             with cols_row3[i]:
+                                st.caption(name)
+                                st.image(preprocessing_steps[key], use_column_width=True)
+
+                    # 네 번째 행 - D단계 (5개, 실제론 최대 5개)
+                    cols_row4 = st.columns(5)
+                    for i, (key, name) in enumerate(step_sequence[13:]):
+                        if key in preprocessing_steps:
+                            with cols_row4[i]:
                                 st.caption(name)
                                 st.image(preprocessing_steps[key], use_column_width=True)
 
