@@ -234,17 +234,16 @@ class CharacterSegmentation:
 
     def create_clean_image_with_white_background(self, image: np.ndarray, character_contours: List) -> np.ndarray:
         """
-        ⭐ 개선된 배경 제거 방법: ROI 영역만 추출 (마스킹 없음)
+        ⭐ 배경을 흰색으로 제거하고 문자만 남김
 
-        Contour는 문자 위치 찾기용으로만 사용하고,
-        실제 이미지는 원본을 그대로 사용하여 문자 손실 방지
+        마스크를 생성하여 문자 영역만 남기고 나머지는 흰색(255)으로 채움
 
         Args:
             image: 원본 이미지 (그레이스케일 또는 컬러)
             character_contours: 검출된 문자 contour 리스트 (dict 형태)
 
         Returns:
-            원본 품질을 유지한 그레이스케일 이미지
+            배경이 흰색이고 문자만 남은 그레이스케일 이미지
         """
         # 그레이스케일 변환
         if len(image.shape) == 3:
@@ -252,9 +251,24 @@ class CharacterSegmentation:
         else:
             gray = image.copy()
 
-        # ⭐ 마스킹 없이 원본 그레이스케일 그대로 반환
-        # Contour는 ROI 찾기용으로만 사용
-        return gray
+        # ⭐ 배경 제거: 마스크 생성
+        # 1. 흰색(255) 배경 이미지 생성
+        white_background = np.ones_like(gray) * 255
+
+        # 2. 문자 영역 마스크 생성 (검은색 배경)
+        mask = np.zeros_like(gray)
+
+        # 3. 각 문자 contour를 마스크에 그리기 (흰색으로)
+        for char_info in character_contours:
+            contour = char_info['contour']
+            # Contour 내부를 흰색(255)으로 채움
+            cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
+
+        # 4. 마스크를 사용하여 문자만 추출
+        # mask가 255인 곳은 원본 이미지, 0인 곳은 흰색 배경
+        clean_image = np.where(mask == 255, gray, white_background)
+
+        return clean_image.astype(np.uint8)
 
     def create_clean_roi_image(self, image: np.ndarray, best_group: List) -> Dict:
         """
