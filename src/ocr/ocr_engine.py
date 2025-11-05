@@ -53,6 +53,17 @@ class OCREngine:
         self.plate_classifier = PlateClassifier()  # 번호판 분류기 초기화
         self.image_processor = ImageProcessor()  # 고급 이미지 전처리기 초기화
 
+        # 슬롯 기반 파이프라인 컴포넌트 초기화
+        if config.ENABLE_SLOT_PIPELINE:
+            from .slot_classifier import SlotClassifier
+            self.slot_classifier = SlotClassifier(
+                model_path=config.SLOT_CLASSIFIER_MODEL if not config.USE_EASYOCR_FOR_SLOTS else None,
+                use_easyocr=config.USE_EASYOCR_FOR_SLOTS
+            )
+            logger.info("슬롯 기반 OCR 파이프라인 활성화됨")
+        else:
+            self.slot_classifier = None
+
     def recognize_with_confidence(self, image, min_confidence=None, use_char_segmentation=None, plate_type='general'):
         """
         OCR 인식 (신뢰도 포함)
@@ -477,3 +488,121 @@ class OCREngine:
             'validation': {'is_valid': False, 'errors': ['인식 실패']},
             'preprocessing_used': []
         }
+
+    def recognize_with_slot_pipeline(self, image, bbox=None, debug=False):
+        """
+        슬롯 기반 OCR 파이프라인 (구조화된 접근)
+
+        docs/ocr_structured_pipeline_plan.md 기반 구현
+
+        Args:
+            image: 번호판 ROI 이미지
+            bbox: 바운딩 박스 (x1, y1, x2, y2) - 템플릿 선택용
+            debug: 디버그 모드 (이미지 저장)
+
+        Returns:
+            dict: {
+                'text': 최종 인식 텍스트,
+                'confidence': 평균 신뢰도,
+                'chars': 슬롯별 문자 리스트,
+                'probs': 슬롯별 확률 리스트,
+                'template_type': 템플릿 타입,
+                'pipeline': 전처리 파이프라인 이름,
+                'quality': 품질 지표,
+                'is_valid': 검증 성공 여부
+            }
+        """
+        if not config.ENABLE_SLOT_PIPELINE or self.slot_classifier is None:
+            logger.warning("슬롯 파이프라인이 비활성화되어 있습니다. 기존 방식 사용")
+            text, conf = self.recognize_with_confidence(image)
+            return {
+                'text': text,
+                'confidence': conf,
+                'chars': [],
+                'probs': [],
+                'template_type': 'UNKNOWN',
+                'pipeline': 'legacy',
+                'quality': {},
+                'is_valid': False
+            }
+
+        try:
+            from ..preprocessing.warp import process_plate_warp
+            from ..preprocessing.pipelines import preprocess_plate_image
+            from .slot_classifier import recognize_plate_slots
+            import os
+
+            # 1. 모서리 검출 & 템플릿 워프
+            warped_image, template_meta = process_plate_warp(image, bbox=bbox, debug=debug)
+
+            # 디버그 이미지 저장
+            if debug and config.SAVE_DEBUG_IMAGES:
+                debug_path = os.path.join(config.DEBUG_DIR, f"slot_warped_{uuid.uuid4().hex[:8]}.jpg")
+                cv2.imwrite(debug_path, warped_image)
+                logger.info(f"워프된 이미지 저장: {debug_path}")
+
+            # 2. 품질 분석 & 적응형 전처리
+            processed_image, meta = preprocess_plate_image(
+                warped_image,
+                template_meta,
+                blur_threshold=config.BLUR_THRESHOLD,
+                contrast_threshold=config.CONTRAST_THRESHOLD,
+                noise_threshold=config.NOISE_THRESHOLD,
+                adaptive_enabled=config.ADAPTIVE_PREPROCESSING
+            )
+
+            # 디버그 이미지 저장
+            if debug and config.SAVE_DEBUG_IMAGES:
+                debug_path = os.path.join(config.DEBUG_DIR, f"slot_processed_{uuid.uuid4().hex[:8]}.jpg")
+                cv2.imwrite(debug_path, processed_image)
+                logger.info(f"전처리된 이미지 저장: {debug_path}, 파이프라인={meta['pipeline']}")
+
+            # 3. 슬롯 추출 & 문자 분류
+            text, chars, probs = recognize_plate_slots(
+                processed_image,
+                template_meta,
+                self.slot_classifier
+            )
+
+            # 4. 구조 검증 & 후처리
+            validated_text, is_valid = self.korean_postprocessor.validate_by_template(
+                text,
+                template_meta.plate_type,
+                chars=chars
+            )
+
+            # 5. 결과 구성
+            avg_confidence = sum(probs) / len(probs) if probs else 0.0
+
+            result = {
+                'text': validated_text,
+                'confidence': avg_confidence,
+                'chars': chars,
+                'probs': probs,
+                'template_type': template_meta.plate_type,
+                'pipeline': meta['pipeline'],
+                'quality': meta['quality'],
+                'is_valid': is_valid,
+                'corners_confidence': template_meta.corners_confidence
+            }
+
+            logger.info(f"슬롯 파이프라인 결과: {validated_text}, 신뢰도={avg_confidence:.2f}, "
+                       f"템플릿={template_meta.plate_type}, 파이프라인={meta['pipeline']}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"슬롯 파이프라인 오류: {e}", exc_info=True)
+            # 오류 발생 시 기존 방식으로 폴백
+            text, conf = self.recognize_with_confidence(image)
+            return {
+                'text': text,
+                'confidence': conf,
+                'chars': [],
+                'probs': [],
+                'template_type': 'UNKNOWN',
+                'pipeline': 'fallback',
+                'quality': {},
+                'is_valid': False,
+                'error': str(e)
+            }
