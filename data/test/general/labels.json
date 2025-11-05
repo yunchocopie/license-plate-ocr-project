@@ -1,0 +1,15 @@
+{
+  "_description": "일반 자가용 번호판 Ground Truth 데이터",
+  "_format": "파일명을 키로 하고, plate_count(번호판 수)와 text(예상 텍스트)를 값으로 사용",
+
+  "sample_001.jpg": {
+    "plate_count": 1,
+    "text": "12가3456",
+    "boxes": [[100, 200, 300, 250]]
+  },
+  "sample_002.jpg": {
+    "plate_count": 1,
+    "text": "301허1234",
+    "boxes": [[150, 180, 380, 230]]
+  }
+}
