@@ -31,45 +31,43 @@ class ImageProcessor:
         self.plate_type_configs = {
             'general': {
                 'target_size': config.PLATE_SIZES.get('general', (320, 80)),
-                'enhancement_strength': 1.2,  # 적당한 대비 향상
-                'noise_reduction': 'light',   # 가벼운 노이즈 제거
-                'sharpening': True,          # 샤프닝 적용
-                'char_separation': True      # 문자 분리 최적화
+                'enhancement_strength': 1.2,
+                'noise_reduction': 'light',
+                'sharpening': True,
+                'char_separation': True
             },
             'general_3digit': {
                 'target_size': config.PLATE_SIZES.get('general_3digit', (360, 80)),
-                'enhancement_strength': 1.3,  # 조금 더 강한 대비
-                'noise_reduction': 'medium',  # 중간 노이즈 제거
+                'enhancement_strength': 1.3,
+                'noise_reduction': 'medium',
                 'sharpening': True,
                 'char_separation': True
             },
             'commercial': {
                 'target_size': config.PLATE_SIZES.get('commercial', (400, 80)),
-                'enhancement_strength': 1.4,  # 노란 배경 대비 강화
+                'enhancement_strength': 1.4,
                 'noise_reduction': 'medium',
                 'sharpening': True,
-                'char_separation': False,    # 지역명+번호 연결형,  # 지역명+번호 연결형
-                'color_mode': 'lab',  # LAB 색공간 사용
-                'threshold_strategy': 'adaptive_color'  # 컬러 기반 적응형
-                'color_mode': 'lab',         # LAB 색공간 사용
-                'threshold_strategy': 'adaptive_color'  # 컬러 기반 적응형
-            },            },
+                'char_separation': False,
+                'color_mode': 'lab',
+                'threshold_strategy': 'adaptive_color'
+            },
             'electric': {
                 'target_size': config.PLATE_SIZES.get('electric', (320, 80)),
                 'enhancement_strength': 1.8,
                 'noise_reduction': 'medium',
                 'sharpening': True,
                 'char_separation': True,
-                'color_mode': 'lab',  # 청색 그라데이션 처리
+                'color_mode': 'lab',
                 'threshold_strategy': 'adaptive_color'
             },
             'diplomatic': {
                 'target_size': config.PLATE_SIZES.get('diplomatic', (350, 80)),
-                'enhancement_strength': 2.5,  # 파란 배경 대비 강화
+                'enhancement_strength': 2.5,
                 'noise_reduction': 'medium',
                 'sharpening': True,
                 'char_separation': False,
-                'color_mode': 'hsv',  # HSV V 채널 활용
+                'color_mode': 'hsv',
                 'threshold_strategy': 'color_contrast'
             },
             'military': {
@@ -84,57 +82,17 @@ class ImageProcessor:
                 'enhancement_strength': 2.2,
                 'noise_reduction': 'medium',
                 'sharpening': True,
-                'char_separation': False,  # 하이픈 포함
+                'char_separation': False,
                 'color_mode': 'lab',
                 'threshold_strategy': 'adaptive_color'
             },
             'motorcycle': {
-                'target_size': config.PLATE_SIZES.get('motorcycle', (280, 120)),  # 2행이므로 높이 증가
+                'target_size': config.PLATE_SIZES.get('motorcycle', (280, 120)),
                 'enhancement_strength': 2.0,
                 'noise_reduction': 'light',
                 'sharpening': True,
                 'char_separation': True,
-                'multi_line': True  # 2행 번호판,
-            'diplomatic': {
-                'target_size': config.PLATE_SIZES.get('diplomatic', (350, 80)),
-                'enhancement_strength': 2.5,  # 파란 배경 대비 강화
-                'noise_reduction': 'medium',
-                'sharpening': True,
-                'char_separation': False,
-                'color_mode': 'hsv',         # HSV V 채널 활용
-                'threshold_strategy': 'color_contrast'
-            },
-            'military': {
-                'target_size': config.PLATE_SIZES.get('military', (300, 80)),
-                'enhancement_strength': 2.3,
-                'noise_reduction': 'medium',
-                'sharpening': True,
-                'char_separation': True
-            },
-            'construction': {
-                'target_size': config.PLATE_SIZES.get('construction', (400, 80)),
-                'enhancement_strength': 2.2,
-                'noise_reduction': 'medium',
-                'sharpening': True,
-                'char_separation': False,    # 하이픈 포함
-                'multi_line': False
-            },
-            'motorcycle': {
-                'target_size': config.PLATE_SIZES.get('motorcycle', (280, 120)),  # 2행이므로 높이 증가
-                'enhancement_strength': 2.0,
-                'noise_reduction': 'light',
-                'sharpening': True,
-                'char_separation': True,
-                'multi_line': True           # 2행 번호판
-            },
-            'electric': {
-                'target_size': config.PLATE_SIZES.get('electric', (320, 80)),
-                'enhancement_strength': 1.8,
-                'noise_reduction': 'medium',
-                'sharpening': True,
-                'char_separation': True,
-                'color_mode': 'lab',         # 청색 그라데이션 처리
-                'threshold_strategy': 'adaptive_color'
+                'multi_line': True
             }
         }
 
