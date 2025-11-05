@@ -762,8 +762,157 @@ class KoreanPlatePostProcessor:
             validation['errors'].append('알려진 번호판 패턴과 불일치')
         
         # 전체 유효성
-        validation['is_valid'] = (validation['format_matched'] and 
-                                validation['hangul_valid'] and 
+        validation['is_valid'] = (validation['format_matched'] and
+                                validation['hangul_valid'] and
                                 validation['length_valid'])
-        
+
         return validation
+
+    def validate_by_template(self, text: str, template_type: str, chars: List[str] = None) -> Tuple[str, bool]:
+        """
+        템플릿 타입에 따른 구조 검증 (슬롯 기반 파이프라인용)
+
+        docs/ocr_structured_pipeline_plan.md 기반 구현
+
+        Args:
+            text: 조합된 문자열
+            template_type: 템플릿 타입 ("ONE_LINE", "TWO_LINE", "TWO_LINE_SMALL", "MOTORCYCLE")
+            chars: 슬롯별 문자 리스트 (선택적, 추가 검증용)
+
+        Returns:
+            validated_text: 검증된 문자열
+            is_valid: 검증 성공 여부
+        """
+        if template_type == "ONE_LINE":
+            return self._validate_one_line(text, chars)
+        elif template_type == "TWO_LINE":
+            return self._validate_two_line(text, chars)
+        elif template_type == "TWO_LINE_SMALL":
+            return self._validate_two_line_small(text, chars)
+        elif template_type == "MOTORCYCLE":
+            return self._validate_motorcycle(text, chars)
+        else:
+            # 알 수 없는 템플릿은 기본 정리만 수행
+            return self._basic_cleanup(text), False
+
+    def _validate_one_line(self, text: str, chars: List[str] = None) -> Tuple[str, bool]:
+        """
+        1행 번호판 검증 (12가3456)
+        패턴: [숫자2자리][한글1자][숫자4자리]
+        """
+        pattern = r'^(\d{2})([가-힣])(\d{4})$'
+
+        # 기본 정리
+        text = self._basic_cleanup(text)
+
+        # 패턴 매칭 시도
+        match = re.match(pattern, text)
+        if match:
+            area, usage_char, number = match.groups()
+
+            # 한글이 받침 없는 문자인지 확인
+            if usage_char in self.valid_hangul:
+                return f"{area}{usage_char}{number}", True
+
+        # 패턴 불일치 시 지능적 복구
+        recovered = self._intelligent_recovery(text, 'general')
+        match = re.match(pattern, recovered)
+
+        if match:
+            area, usage_char, number = match.groups()
+            if usage_char in self.valid_hangul:
+                return f"{area}{usage_char}{number}", True
+
+        # 검증 실패 - 원본 또는 복구된 텍스트 반환
+        return recovered if recovered != text else text, False
+
+    def _validate_two_line(self, text: str, chars: List[str] = None) -> Tuple[str, bool]:
+        """
+        2행 번호판 검증 (경기79사4711)
+        구조:
+          1행: [지역명][숫자2자리]
+          2행: [한글1자][숫자4자리]
+        """
+        # 패턴: 지역명(2-4자) + 숫자2자리 + 한글1자 + 숫자4자리
+        pattern = r'^([가-힣]{2,4})(\d{2})([가-힣])(\d{4})$'
+
+        text = self._basic_cleanup(text)
+
+        match = re.match(pattern, text)
+        if match:
+            region, area, usage_char, number = match.groups()
+
+            # 지역명과 한글 검증
+            if region in self.regions and usage_char in self.valid_hangul:
+                return f"{region}{area}{usage_char}{number}", True
+
+        # 복구 시도
+        recovered = self._intelligent_recovery(text, 'commercial')
+        match = re.match(pattern, recovered)
+
+        if match:
+            region, area, usage_char, number = match.groups()
+            if region in self.regions and usage_char in self.valid_hangul:
+                return f"{region}{area}{usage_char}{number}", True
+
+        return recovered if recovered != text else text, False
+
+    def _validate_two_line_small(self, text: str, chars: List[str] = None) -> Tuple[str, bool]:
+        """
+        2행 소형 번호판 검증 (서울12가3456)
+        구조:
+          1행: [지역명][숫자2자리][한글1자]
+          2행: [숫자4자리]
+        """
+        # 패턴: 지역명(2-4자) + 숫자2자리 + 한글1자 + 숫자4자리
+        pattern = r'^([가-힣]{2,4})(\d{2})([가-힣])(\d{4})$'
+
+        text = self._basic_cleanup(text)
+
+        match = re.match(pattern, text)
+        if match:
+            region, area, usage_char, number = match.groups()
+
+            if region in self.regions and usage_char in self.valid_hangul:
+                return f"{region}{area}{usage_char}{number}", True
+
+        # 복구 시도
+        recovered = self._intelligent_recovery(text, 'commercial')
+        match = re.match(pattern, recovered)
+
+        if match:
+            region, area, usage_char, number = match.groups()
+            if region in self.regions and usage_char in self.valid_hangul:
+                return f"{region}{area}{usage_char}{number}", True
+
+        return recovered if recovered != text else text, False
+
+    def _validate_motorcycle(self, text: str, chars: List[str] = None) -> Tuple[str, bool]:
+        """
+        이륜차 번호판 검증 (서울가1234)
+        구조:
+          1행: [지역명]
+          2행: [한글1자][숫자4자리]
+        """
+        # 패턴: 지역명(2-4자) + 한글1자 + 숫자4자리
+        pattern = r'^([가-힣]{2,4})([가-힣])(\d{4})$'
+
+        text = self._basic_cleanup(text)
+
+        match = re.match(pattern, text)
+        if match:
+            region, usage_char, number = match.groups()
+
+            if region in self.regions and usage_char in self.valid_hangul:
+                return f"{region}{usage_char}{number}", True
+
+        # 복구 시도
+        recovered = self._intelligent_recovery(text, 'motorcycle')
+        match = re.match(pattern, recovered)
+
+        if match:
+            region, usage_char, number = match.groups()
+            if region in self.regions and usage_char in self.valid_hangul:
+                return f"{region}{usage_char}{number}", True
+
+        return recovered if recovered != text else text, False
