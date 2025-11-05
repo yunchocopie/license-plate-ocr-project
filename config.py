@@ -52,7 +52,7 @@ PLATE_SIZES = {
     'diplomatic': (350, 80),        # 외교관용
     'military': (300, 80),          # 군용
     'construction': (400, 80),      # 건설기계
-    'motorcycle': (280, 60),        # 이륜차 (작은 크기)
+    'motorcycle': (280, 120),       # 이륜차 (2행이므로 높이 증가)
     'temporary': (320, 80),         # 임시운행
     'default': (320, 80)            # 기본값
 }

@@ -48,7 +48,93 @@ class ImageProcessor:
                 'enhancement_strength': 1.4,  # 노란 배경 대비 강화
                 'noise_reduction': 'medium',
                 'sharpening': True,
-                'char_separation': False     # 지역명+번호 연결형
+                'char_separation': False,    # 지역명+번호 연결형,  # 지역명+번호 연결형
+                'color_mode': 'lab',  # LAB 색공간 사용
+                'threshold_strategy': 'adaptive_color'  # 컬러 기반 적응형
+                'color_mode': 'lab',         # LAB 색공간 사용
+                'threshold_strategy': 'adaptive_color'  # 컬러 기반 적응형
+            },            },
+            'electric': {
+                'target_size': config.PLATE_SIZES.get('electric', (320, 80)),
+                'enhancement_strength': 1.8,
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': True,
+                'color_mode': 'lab',  # 청색 그라데이션 처리
+                'threshold_strategy': 'adaptive_color'
+            },
+            'diplomatic': {
+                'target_size': config.PLATE_SIZES.get('diplomatic', (350, 80)),
+                'enhancement_strength': 2.5,  # 파란 배경 대비 강화
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': False,
+                'color_mode': 'hsv',  # HSV V 채널 활용
+                'threshold_strategy': 'color_contrast'
+            },
+            'military': {
+                'target_size': config.PLATE_SIZES.get('military', (300, 80)),
+                'enhancement_strength': 2.3,
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': True
+            },
+            'construction': {
+                'target_size': config.PLATE_SIZES.get('construction', (400, 80)),
+                'enhancement_strength': 2.2,
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': False,  # 하이픈 포함
+                'color_mode': 'lab',
+                'threshold_strategy': 'adaptive_color'
+            },
+            'motorcycle': {
+                'target_size': config.PLATE_SIZES.get('motorcycle', (280, 120)),  # 2행이므로 높이 증가
+                'enhancement_strength': 2.0,
+                'noise_reduction': 'light',
+                'sharpening': True,
+                'char_separation': True,
+                'multi_line': True  # 2행 번호판,
+            'diplomatic': {
+                'target_size': config.PLATE_SIZES.get('diplomatic', (350, 80)),
+                'enhancement_strength': 2.5,  # 파란 배경 대비 강화
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': False,
+                'color_mode': 'hsv',         # HSV V 채널 활용
+                'threshold_strategy': 'color_contrast'
+            },
+            'military': {
+                'target_size': config.PLATE_SIZES.get('military', (300, 80)),
+                'enhancement_strength': 2.3,
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': True
+            },
+            'construction': {
+                'target_size': config.PLATE_SIZES.get('construction', (400, 80)),
+                'enhancement_strength': 2.2,
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': False,    # 하이픈 포함
+                'multi_line': False
+            },
+            'motorcycle': {
+                'target_size': config.PLATE_SIZES.get('motorcycle', (280, 120)),  # 2행이므로 높이 증가
+                'enhancement_strength': 2.0,
+                'noise_reduction': 'light',
+                'sharpening': True,
+                'char_separation': True,
+                'multi_line': True           # 2행 번호판
+            },
+            'electric': {
+                'target_size': config.PLATE_SIZES.get('electric', (320, 80)),
+                'enhancement_strength': 1.8,
+                'noise_reduction': 'medium',
+                'sharpening': True,
+                'char_separation': True,
+                'color_mode': 'lab',         # 청색 그라데이션 처리
+                'threshold_strategy': 'adaptive_color'
             }
         }
 
@@ -669,67 +755,126 @@ class ImageProcessor:
 
         return final_image
     
-    def process_for_plate_type(self, image, plate_type='general'):
+    def process_for_plate_type(self, image, plate_type):
         """
-        번호판 타입에 최적화된 전처리 (제공된 이미지 구조 기반)
-        
+        번호판 타입에 따른 맞춤형 전처리
+
         Args:
-            image: 입력 번호판 이미지
-            plate_type: 'general', 'general_3digit', 'commercial' 등
-            
+            image (numpy.ndarray): BGR 형식의 원본 번호판 이미지
+            plate_type: PlateType enum 또는 문자열
+
         Returns:
-            전처리된 이미지
+            numpy.ndarray: 전처리된 그레이스케일 번호판 이미지
         """
+        from ..classification.plate_classifier import PlateType
+
         if image is None or image.size == 0:
-            return np.zeros((80, 320), dtype=np.uint8)
-        
+            print("Warning: Input image to ImageProcessor is empty.")
+            return np.zeros(config.PLATE_SIZE[::-1], dtype=np.uint8)
+
+        # PlateType enum을 문자열로 변환
+        if hasattr(plate_type, 'value'):
+            type_name = plate_type.name.lower()
+        else:
+            type_name = str(plate_type).lower()
+
         # 타입별 설정 가져오기
-        config_key = plate_type if plate_type in self.plate_type_configs else 'general'
-        type_config = self.plate_type_configs[config_key]
-        
-        # 1. 그레이스케일 변환
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        type_config = self._get_plate_type_config(type_name)
+
+        # 그레이스케일 변환 전에 컬러 기반 처리
+        color_mode = type_config.get('color_mode', 'none')
+
+        if color_mode == 'lab':
+            # LAB 색공간으로 변환하여 L 채널만 사용
+            lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+            l_channel, a, b = cv2.split(lab)
+            gray = l_channel
+        elif color_mode == 'hsv':
+            # HSV 색공간으로 변환하여 V 채널 사용
+            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            h, s, v = cv2.split(hsv)
+            gray = v
         else:
-            gray = image.copy()
-        
-        # 2. 타입별 크기 조정
-        target_size = type_config['target_size']
-        resized = cv2.resize(gray, target_size, interpolation=cv2.INTER_CUBIC)
-        
-        # 3. 노이즈 제거 (타입별 강도)
-        noise_level = type_config['noise_reduction']
-        if noise_level == 'light':
-            denoised = cv2.fastNlMeansDenoising(resized, None, h=3, templateWindowSize=7, searchWindowSize=21)
-        elif noise_level == 'medium':
-            denoised = cv2.fastNlMeansDenoising(resized, None, h=5, templateWindowSize=7, searchWindowSize=21)
-        else:
-            denoised = resized.copy()
-        
-        # 4. 대비 향상 (타입별 강도)
-        strength = type_config['enhancement_strength']
-        enhanced = cv2.convertScaleAbs(denoised, alpha=strength, beta=10)
-        
-        # 5. 적응형 히스토그램 평활화 (CLAHE)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        equalized = clahe.apply(enhanced)
-        
-        # 6. 샤프닝 (선택적)
-        if type_config.get('sharpening', False):
-            kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-            sharpened = cv2.filter2D(equalized, -1, kernel)
-            # 샤프닝 강도 조절
-            result = cv2.addWeighted(equalized, 0.7, sharpened, 0.3, 0)
-        else:
-            result = equalized
-        
-        # 7. 문자 분리 최적화 (일반 번호판용)
-        if type_config.get('char_separation', False):
-            # 모폴로지 연산으로 문자 분리 개선
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 1))
-            result = cv2.morphologyEx(result, cv2.MORPH_OPEN, kernel)
-        
-        return result
+            # 기본 그레이스케일 변환
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.copy()
+
+        processed = gray.copy()
+
+        # 가우시안 블러
+        processed = cv2.GaussianBlur(processed, (5, 5), 1.0)
+
+        # 원근 보정
+        perspective_corrected = self.perspective_corrector.correct(processed.copy())
+        if perspective_corrected is not None and perspective_corrected.shape[0] > 10 and perspective_corrected.shape[1] > 30:
+            processed = perspective_corrected
+
+        # 타입별 크기 조정
+        target_size = type_config.get('target_size', config.PLATE_SIZE)
+        processed = cv2.resize(processed, target_size)
+
+        # 타입별 대비 향상
+        enhancement_strength = type_config.get('enhancement_strength', 2.0)
+        clahe = cv2.createCLAHE(clipLimit=enhancement_strength, tileGridSize=(8, 8))
+        processed = clahe.apply(processed)
+
+        # 적응형 임계값
+        processed = cv2.adaptiveThreshold(
+            processed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 15, 8
+        )
+
+        # 2행 번호판 처리 (이륜차, 일부 건설기계)
+        if type_config.get('multi_line', False):
+            # 이미지를 상하로 분할하여 처리
+            h, w = processed.shape
+            mid_h = h // 2
+
+            # 상단과 하단을 별도로 처리
+            top_half = processed[:mid_h, :]
+            bottom_half = processed[mid_h:, :]
+
+            # 각 영역의 대비를 개별 조정
+            clahe_multi = cv2.createCLAHE(clipLimit=enhancement_strength * 1.2, tileGridSize=(4, 4))
+            top_enhanced = clahe_multi.apply(top_half)
+            bottom_enhanced = clahe_multi.apply(bottom_half)
+
+            # 재결합
+            processed = np.vstack([top_enhanced, bottom_enhanced])
+
+        return processed
+
+    def _get_plate_type_config(self, type_name):
+        """번호판 타입별 설정 가져오기"""
+        # 기본 타입 매핑
+        type_mapping = {
+            'general': 'general',
+            'commercial': 'commercial',
+            'electric': 'electric',  # 전기차 전용 설정 사용
+            'diplomatic': 'diplomatic',
+            'military': 'military',
+            'construction': 'construction',
+            'motorcycle': 'motorcycle',
+            'temporary': 'general',
+            'special': 'general',
+            'unknown': 'general'
+        }
+
+        config_key = type_mapping.get(type_name, 'general')
+
+        # plate_type_configs에 해당 설정이 있으면 반환
+        if config_key in self.plate_type_configs:
+            return self.plate_type_configs[config_key]
+
+        # 없으면 기본 설정 반환
+        return {
+            'target_size': config.PLATE_SIZE,
+            'enhancement_strength': 2.0,
+            'noise_reduction': 'medium',
+            'sharpening': True
+        }
     
     def optimize_for_korean_chars(self, image):
         """
@@ -767,3 +912,121 @@ class ImageProcessor:
         result = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, vertical_kernel)
         
         return result
+    def process_for_plate_type(self, image, plate_type):
+        """
+        번호판 타입에 따른 맞춤형 전처리
+
+        Args:
+            image (numpy.ndarray): BGR 형식의 원본 번호판 이미지
+            plate_type: PlateType enum 또는 문자열
+
+        Returns:
+            numpy.ndarray: 전처리된 그레이스케일 번호판 이미지
+        """
+        from ..classification.plate_classifier import PlateType
+        
+        if image is None or image.size == 0:
+            print("Warning: Input image to ImageProcessor is empty.")
+            return np.zeros(config.PLATE_SIZE[::-1], dtype=np.uint8)
+
+        # PlateType enum을 문자열로 변환
+        if hasattr(plate_type, 'value'):
+            type_name = plate_type.name.lower()
+        else:
+            type_name = str(plate_type).lower()
+
+        # 타입별 설정 가져오기
+        type_config = self._get_plate_type_config(type_name)
+        
+        # 컬러 기반 전처리 (Task 2C)
+        color_mode = type_config.get('color_mode', 'none')
+        
+        if color_mode == 'lab':
+            # LAB 색공간으로 변환하여 L 채널만 사용
+            lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+            l_channel, a, b = cv2.split(lab)
+            gray = l_channel
+        elif color_mode == 'hsv':
+            # HSV 색공간으로 변환하여 V 채널 사용
+            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            h, s, v = cv2.split(hsv)
+            gray = v
+        else:
+            # 기본 그레이스케일 변환
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.copy()
+
+        processed = gray.copy()
+
+        # 가우시안 블러
+        processed = cv2.GaussianBlur(processed, (5, 5), 1.0)
+
+        # 원근 보정
+        perspective_corrected = self.perspective_corrector.correct(processed.copy())
+        if perspective_corrected is not None and perspective_corrected.shape[0] > 10 and perspective_corrected.shape[1] > 30:
+            processed = perspective_corrected
+
+        # 타입별 크기 조정
+        target_size = type_config.get('target_size', config.PLATE_SIZE)
+        processed = cv2.resize(processed, target_size)
+
+        # 타입별 대비 향상
+        enhancement_strength = type_config.get('enhancement_strength', 2.0)
+        clahe = cv2.createCLAHE(clipLimit=enhancement_strength, tileGridSize=(8, 8))
+        processed = clahe.apply(processed)
+
+        # 2행 번호판 처리 (Task 2B)
+        if type_config.get('multi_line', False):
+            h, w = processed.shape
+            mid_h = h // 2
+            
+            # 상단과 하단을 별도로 처리
+            top_half = processed[:mid_h, :]
+            bottom_half = processed[mid_h:, :]
+            
+            # 각 영역의 대비를 개별 조정
+            clahe_multi = cv2.createCLAHE(clipLimit=enhancement_strength * 1.2, tileGridSize=(4, 4))
+            top_enhanced = clahe_multi.apply(top_half)
+            bottom_enhanced = clahe_multi.apply(bottom_half)
+            
+            # 재결합
+            processed = np.vstack([top_enhanced, bottom_enhanced])
+
+        # 적응형 임계값
+        processed = cv2.adaptiveThreshold(
+            processed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 15, 8
+        )
+
+        return processed
+
+    def _get_plate_type_config(self, type_name):
+        """번호판 타입별 설정 가져오기"""
+        # 기본 타입 매핑
+        type_mapping = {
+            'general': 'general',
+            'commercial': 'commercial',
+            'electric': 'electric',
+            'diplomatic': 'diplomatic',
+            'military': 'military',
+            'construction': 'construction',
+            'motorcycle': 'motorcycle',
+            'temporary': 'general',
+            'special': 'general'
+        }
+        
+        config_key = type_mapping.get(type_name, 'general')
+        
+        # plate_type_configs에 해당 설정이 있으면 반환
+        if config_key in self.plate_type_configs:
+            return self.plate_type_configs[config_key]
+        
+        # 없으면 기본 설정 반환
+        return {
+            'target_size': config.PLATE_SIZE,
+            'enhancement_strength': 2.0,
+            'noise_reduction': 'medium',
+            'sharpening': True
+        }

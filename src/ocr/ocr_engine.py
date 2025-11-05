@@ -286,11 +286,32 @@ class OCREngine:
                 'preprocessing_info': 전처리 정보
             }
         """
-        # OCR 수행 (단일 전처리 적용)
-        text, confidence = self.recognize_with_confidence(image, min_confidence)
+        min_confidence = min_confidence if min_confidence is not None else config.MIN_OCR_CONFIDENCE
 
-        # 번호판 분류 수행 (원본 이미지 사용 - 색상 분석을 위해)
-        classification = self.plate_classifier.classify_plate(image, text)
+        # 번호판 분류 먼저 수행 (원본 이미지 사용 - 색상 분석을 위해)
+        classification = self.plate_classifier.classify_plate(image, "")
+        plate_type = classification['type']
+
+        # 타입별 전처리 적용
+        from ..preprocessing.image_processor import ImageProcessor
+        processor = ImageProcessor()
+        processed_image = processor.process_for_plate_type(image, plate_type)
+
+        # 2행 번호판 처리
+        if plate_type.name in ['MOTORCYCLE', 'CONSTRUCTION']:
+            h, w = processed_image.shape
+            mid_h = h // 2
+
+            # 상단과 하단 별도 OCR
+            top_text, top_conf = self._recognize_single(processed_image[:mid_h, :], min_confidence)
+            bottom_text, bottom_conf = self._recognize_single(processed_image[mid_h:, :], min_confidence)
+
+            # 결합
+            text = top_text + " " + bottom_text
+            confidence = (top_conf + bottom_conf) / 2
+        else:
+            # 단일 OCR
+            text, confidence = self._recognize_single(processed_image, min_confidence)
 
         # 한국 번호판 전용 후처리 적용
         processed_text = self.korean_postprocessor.process_by_plate_type(text, classification['type'])
@@ -303,8 +324,61 @@ class OCREngine:
             'confidence': confidence,
             'classification': classification,
             'validation': validation,
-            'preprocessing_info': {'mode': 'standard'}
+            'preprocessing_info': {'mode': 'type_optimized', 'plate_type': plate_type.name}
         }
+
+    def _recognize_single(self, image, min_confidence):
+        """
+        단일 이미지 영역에 대한 OCR 수행
+
+        Args:
+            image: 전처리된 이미지
+            min_confidence: 최소 신뢰도
+
+        Returns:
+            tuple: (인식된 텍스트, 신뢰도)
+        """
+        if image is None or image.size == 0:
+            return "", 0.0
+
+        try:
+            # EasyOCR 실행
+            results = self.reader.readtext(
+                image,
+                detail=1,
+                allowlist=self.allowed_chars,
+                paragraph=False,
+                width_ths=0.1,
+                height_ths=0.1,
+                text_threshold=0.3,
+                low_text=0.1,
+                decoder='beamsearch'
+            )
+
+            if not results:
+                return "", 0.0
+
+            # 신뢰도 필터링 및 좌표 기준 정렬
+            filtered_results = [r for r in results if r[2] >= min_confidence]
+
+            # 번호판 텍스트를 좌표 순서대로 정렬 (왼쪽에서 오른쪽으로)
+            if len(filtered_results) > 1:
+                filtered_results.sort(key=lambda x: x[0][0][0])  # X 좌표 기준 정렬
+
+            if not filtered_results:
+                return "", 0.0
+
+            texts = [r[1] for r in filtered_results]
+            confidences = [r[2] for r in filtered_results]
+
+            combined_text = "".join(texts)
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+
+            return combined_text, avg_confidence
+
+        except Exception as e:
+            logger.error(f"OCR Error in _recognize_single: {e}", exc_info=True)
+            return "", 0.0
     
     def _post_process_by_type(self, text, plate_type):
         """번호판 타입에 따른 추가 후처리"""
