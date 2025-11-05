@@ -17,7 +17,7 @@ class TextPostProcessor:
         Args:
             allowed_chars (str, optional): 허용된 문자 집합. 기본값은 config에서 가져옴
         """
-        self.allowed_chars = allowed_chars or config.OCR_ALLOWED_CHARS
+        self.allowed_chars = allowed_chars or (config.OCR_ALLOWED_CHARS + '- ')
         
         # 한국어 자동차 번호판 지역명 (시/도)
         self.korean_regions = config.KOREAN_REGIONS
@@ -59,18 +59,15 @@ class TextPostProcessor:
     def _remove_unwanted_chars(self, text):
         """
         원치 않는 문자 제거
-        
+
         Args:
             text (str): 입력 텍스트
-            
+
         Returns:
             str: 정제된 텍스트
         """
-        # 공백 제거
-        text = text.replace(" ", "")
-        
-        # 특수문자 제거 (알파벳, 숫자, 한글만 유지)
-        pattern = r'[^가-힣0-9a-zA-Z]'
+        # 특수문자 제거 (알파벳, 숫자, 한글, 하이픈, 공백 유지)
+        pattern = r'[^가-힣0-9a-zA-Z\- ]'
         return re.sub(pattern, '', text)
     
     def _filter_allowed_chars(self, text):
