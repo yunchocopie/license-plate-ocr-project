@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
-import easyocr
+# import easyocr  # 백엔드로 이동
+from .backends import EasyOCRBackend, OCRBackend
 import torch
 import os
 import uuid
@@ -20,39 +21,33 @@ class OCREngine:
         self.languages = languages if languages is not None else config.OCR_LANGUAGES
         self.gpu = gpu if gpu is not None else config.OCR_GPU
 
-        if self.gpu and not torch.cuda.is_available():
-            logger.warning("GPU not available or PyTorch not compiled with CUDA support, using CPU instead.")
-            self.gpu = False
-        elif self.gpu and torch.cuda.is_available():
-            logger.info("GPU available, using GPU for OCR.")
-        else:
-            logger.info("Using CPU for OCR.")
+        # GPU 사용 여부 (백엔드에서 실제 확인 수행)
+        # 여기서는 설정만 저장
 
         # EasyOCR은 문자열 리스트를 허용 문자로 받음
         self.allowed_chars = allowed_chars if allowed_chars is not None else config.OCR_ALLOWED_CHARS
         self.model_storage_directory = model_storage_directory if model_storage_directory is not None else config.MODEL_DIR
         self.download_enabled = False  # 로컬 모델 사용을 위해 다운로드 비활성화
 
-        # 로컬 모델 파일 경로 설정 및 확인
-        self.craft_model_path = os.path.join(self.model_storage_directory, 'craft_mlt_25k.pth')
-        self.korean_model_path = os.path.join(self.model_storage_directory, 'korean_g2.pth')
+        # 모델 파일 확인은 백엔드에서 처리
 
-        # 로컬 모델 파일 존재 여부 확인
-        if not os.path.exists(self.craft_model_path):
-            raise FileNotFoundError(f"CRAFT 모델 파일을 찾을 수 없습니다: {self.craft_model_path}")
-        if not os.path.exists(self.korean_model_path):
-            raise FileNotFoundError(f"한국어 모델 파일을 찾을 수 없습니다: {self.korean_model_path}")
-
-        logger.info(f"로컬 모델 사용: CRAFT={self.craft_model_path}, Korean={self.korean_model_path}")
-
-        # EasyOCR Reader 초기화 (로컬 모델 디렉토리 사용)
-        self.reader = easyocr.Reader(
-            self.languages,
-            gpu=self.gpu,
-            model_storage_directory=self.model_storage_directory,
-            download_enabled=self.download_enabled,
-            verbose=True
-        )
+        # OCR 백엔드 초기화 (기본: EasyOCR)
+        backend_type = getattr(config, 'OCR_BACKEND', 'easyocr').lower()
+        
+        if backend_type == 'easyocr':
+            self.backend = EasyOCRBackend(
+                languages=self.languages,
+                gpu=self.gpu,
+                model_storage_directory=self.model_storage_directory,
+                download_enabled=self.download_enabled,
+                allowed_chars=self.allowed_chars
+            )
+            logger.info(f"OCR 백엔드 초기화: EasyOCR")
+        else:
+            raise ValueError(f"지원하지 않는 OCR 백엔드: {backend_type}")
+        
+        # 하위 호환성을 위한 reader 속성
+        self.reader = self.backend.reader if hasattr(self.backend, 'reader') else None
         self.post_processor = TextPostProcessor(allowed_chars=self.allowed_chars)
         self.korean_postprocessor = KoreanPlatePostProcessor()  # 한국 번호판 전용 후처리기
         self.plate_classifier = PlateClassifier()  # 번호판 분류기 초기화
@@ -116,7 +111,7 @@ class OCREngine:
 
             if height < 50 or width < 150:  # 작은 이미지
                 print("작은 이미지용 OCR 설정 사용")
-                results = self.reader.readtext(
+                results = self.backend.recognize(
                     processed_image,
                     detail=1,
                     allowlist=self.allowed_chars,
@@ -129,7 +124,7 @@ class OCREngine:
                 )
             else:
                 print("일반 이미지용 OCR 설정 사용")
-                results = self.reader.readtext(
+                results = self.backend.recognize(
                     processed_image,
                     detail=1,
                     allowlist=self.allowed_chars,
@@ -165,7 +160,7 @@ class OCREngine:
             # 예비 방법 0: 허용문자 제한 없이 시도
             logger.info("허용문자 제한 없이 OCR 시도")
             try:
-                no_filter_results = self.reader.readtext(
+                no_filter_results = self.backend.recognize(
                     processed_image,
                     detail=1,
                     paragraph=False,
@@ -238,7 +233,7 @@ class OCREngine:
                 cleaned = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
             
             print("이진화 전처리로 OCR 재시도")
-            results = self.reader.readtext(cleaned, detail=1, allowlist=self.allowed_chars, 
+            results = self.backend.recognize(cleaned, detail=1, allowlist=self.allowed_chars, 
                                          paragraph=False, width_ths=0.1, height_ths=0.1)
             if results:
                 print(f"예비 방법 성공: {len(results)}개 텍스트 발견")
@@ -251,7 +246,7 @@ class OCREngine:
         try:
             enhanced = cv2.convertScaleAbs(image, alpha=2.0, beta=0)  # 대비 2배 증가
             print("대비 강화로 OCR 재시도")
-            results = self.reader.readtext(enhanced, detail=1, allowlist=self.allowed_chars,
+            results = self.backend.recognize(enhanced, detail=1, allowlist=self.allowed_chars,
                                          paragraph=False, width_ths=0.05, height_ths=0.05)
             if results:
                 print(f"예비 방법 2 성공: {len(results)}개 텍스트 발견")
@@ -343,7 +338,7 @@ class OCREngine:
 
         try:
             # EasyOCR 실행
-            results = self.reader.readtext(
+            results = self.backend.recognize(
                 image,
                 detail=1,
                 allowlist=self.allowed_chars,

@@ -140,6 +140,9 @@ IMAGE_QUALITY_THRESHOLDS = {
 # ==========================================
 # OCR 엔진 설정
 # ==========================================
+# OCR 백엔드 선택 ('easyocr', 'paddleocr', 'custom')
+OCR_BACKEND = 'easyocr'  # 기본: EasyOCR
+
 OCR_LANGUAGES = ['ko', 'en']         # 인식 언어 (한국어 + 영어 지원)
 OCR_GPU = True                        # GPU 사용 여부 (가능한 경우)
 # 한국 번호판에서 사용되는 모든 한글 문자
