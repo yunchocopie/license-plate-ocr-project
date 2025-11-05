@@ -167,6 +167,25 @@ KOREAN_REGIONS = [
 ]
 
 # ==========================================
+# 슬롯 기반 OCR 파이프라인 설정
+# ==========================================
+# 슬롯 기반 파이프라인 활성화 여부
+ENABLE_SLOT_PIPELINE = True  # True: 슬롯 기반, False: 기존 EasyOCR 방식
+
+# 적응형 전처리 활성화 여부
+ADAPTIVE_PREPROCESSING = True  # 품질에 따라 다른 전처리 파이프라인 선택
+
+# 품질 분석 임계값
+BLUR_THRESHOLD = 120.0          # 블러 임계값 (이 값보다 낮으면 흐림)
+CONTRAST_THRESHOLD = 20.0       # 대비 임계값 (이 값보다 낮으면 저대비)
+NOISE_THRESHOLD = 35.0          # 노이즈 임계값 (이 값보다 높으면 노이즈 많음)
+
+# 슬롯 분류기 모델 경로
+SLOT_CLASSIFIER_MODEL = os.path.join(MODEL_DIR, "slot_classifier.pth")  # 커스텀 모델 (선택적)
+USE_EASYOCR_FOR_SLOTS = True    # True: EasyOCR 사용, False: 커스텀 모델 사용
+
+# ==========================================
 # 디버그 모드 설정
 # ==========================================
 DEBUG_MODE = False  # True로 설정하면 디버그 정보 출력
+SAVE_DEBUG_IMAGES = False  # 디버그 이미지 저장 (워프, 전처리, 슬롯 등)
