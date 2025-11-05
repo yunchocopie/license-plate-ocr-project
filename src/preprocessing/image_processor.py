@@ -108,8 +108,61 @@ class ImageProcessor:
         return adaptive_ocr
 
     def apply_individual(self, image, blur=False, perspective=False, normalize=True, enhance=True):
-        """레거시 호환성을 위한 메서드 - 새로운 두 단계 파이프라인 사용"""
-        return self.process(image)
+        """
+        개별 전처리 단계를 선택적으로 적용
+
+        Args:
+            image (numpy.ndarray): BGR 형식의 원본 번호판 이미지
+            blur (bool): 블러 보정 적용 여부
+            perspective (bool): 원근 보정 적용 여부
+            normalize (bool): 크기 정규화 적용 여부
+            enhance (bool): 대비 향상 적용 여부
+
+        Returns:
+            numpy.ndarray: 전처리된 그레이스케일 번호판 이미지
+        """
+        if image is None or image.size == 0:
+            print("Warning: Input image to ImageProcessor is empty.")
+            return np.zeros(config.PLATE_SIZE[::-1], dtype=np.uint8)
+
+        # 1. 그레이스케일 변환 (항상 적용)
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+
+        processed = gray.copy()
+
+        # 2. 블러 보정 (선택적)
+        if blur:
+            # 가우시안 블러 적용
+            processed = cv2.GaussianBlur(processed, (5, 5), 1.0)
+
+        # 3. 원근 보정 (선택적)
+        if perspective:
+            perspective_corrected = self.perspective_corrector.correct(processed.copy())
+            if perspective_corrected is not None and perspective_corrected.shape[0] > 10 and perspective_corrected.shape[1] > 30:
+                processed = perspective_corrected
+
+        # 4. 크기 정규화 (선택적)
+        if normalize:
+            # 목표 크기로 리사이즈
+            processed = cv2.resize(processed, config.PLATE_SIZE)
+
+        # 5. 대비 향상 및 적응형 임계값 (선택적)
+        if enhance:
+            # CLAHE 적용
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            processed = clahe.apply(processed)
+
+            # 적응형 임계값
+            processed = cv2.adaptiveThreshold(
+                processed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY, 15, 8
+            )
+
+        return processed
+
 
 
     def visualize_steps(self, image):
