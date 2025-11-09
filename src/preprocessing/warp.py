@@ -113,9 +113,12 @@ def get_two_line_template() -> TemplateMeta:
 
 def get_two_line_small_template() -> TemplateMeta:
     """
-    2행 소형 번호판 템플릿 (예: 서울12가 / 3456)
+    2행 소형 번호판 템플릿 (예: 02노 / 3454)
     크기: 280x260 픽셀
     종횡비가 1.1 정도로 정사각형에 가까움
+
+    패턴: 상단(2자리 숫자 + 한글) / 하단(4자리 숫자)
+    예시: 02노3454, 01고8109
     """
     width, height = 280, 260
 
@@ -123,21 +126,19 @@ def get_two_line_small_template() -> TemplateMeta:
     char_height = 65
     spacing = 6
 
-    # 1행 (지역명 + 숫자 + 한글)
-    region_width = 100
-    region_height = 60
-    region_y = 20
+    # 1행 (숫자 2자리 + 한글) - 지역명 없음
+    top_y = 20
+    top_start_x = 40  # 3개 문자를 중앙 정렬
 
     # 2행 (숫자 4자리)
     bottom_y = 150
     bottom_start_x = 25
 
     slots = [
-        # 1행
-        Slot(name="region", x=15, y=region_y, w=region_width, h=region_height),
-        Slot(name="top_num1", x=125, y=region_y, w=char_width, h=char_height),
-        Slot(name="top_num2", x=185, y=region_y, w=char_width, h=char_height),
-        Slot(name="hangul", x=235, y=region_y, w=char_width, h=char_height),
+        # 1행 (지역명 없음, 숫자 2자리 + 한글만)
+        Slot(name="top_num1", x=top_start_x + (char_width + spacing) * 0, y=top_y, w=char_width, h=char_height),
+        Slot(name="top_num2", x=top_start_x + (char_width + spacing) * 1, y=top_y, w=char_width, h=char_height),
+        Slot(name="hangul", x=top_start_x + (char_width + spacing) * 2, y=top_y, w=char_width, h=char_height),
 
         # 2행
         Slot(name="num1", x=bottom_start_x + (char_width + spacing) * 0, y=bottom_y, w=char_width, h=char_height),
