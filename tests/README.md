@@ -1,14 +1,38 @@
-# 번호판 OCR 리그레션 테스트
+# 번호판 OCR 테스트 스위트
 
 ## 개요
 
-1차 작업(Task 1A~1D) 완료 후 성능 검증을 위한 리그레션 테스트입니다.
+한국 번호판 OCR 프로젝트의 통합 테스트 모음입니다. 전처리, OCR, 리그레션 테스트를 포함합니다.
+
+## 테스트 파일 목록
+
+### 1. 리그레션 테스트
+- **`test_plate_regression.py`**: 전체 OCR 파이프라인 성능 검증
+- **`test_adaptive_preprocessing.py`**: 적응형 전처리 알고리즘 테스트
+- **`test_slot_pipeline.py`**: 슬롯 기반 파이프라인 테스트
+
+### 2. 전처리 테스트
+- **`test_advanced_preprocessing.py`**: 고급 전처리 기능 (슈퍼해상도, 디블러링 등)
+- **`test_preprocessing_only.py`**: OCR 없이 전처리 파이프라인만 검증
+- **`test_background_removal.py`**: 배경 제거 알고리즘 테스트
+
+### 3. 개별 기능 테스트
+- **`test_char_segmentation.py`**: 문자 영역 추출 및 분리 테스트
+- **`test_uploaded_plate.py`**: 업로드된 번호판 이미지의 전처리 단계 시각화
 
 ## 테스트 구조
 
 ```
 tests/
-  test_plate_regression.py  # 리그레션 테스트 스크립트
+  test_plate_regression.py      # 리그레션 테스트
+  test_adaptive_preprocessing.py # 적응형 전처리
+  test_slot_pipeline.py          # 슬롯 파이프라인
+  test_advanced_preprocessing.py # 고급 전처리
+  test_preprocessing_only.py     # 전처리 전용
+  test_background_removal.py     # 배경 제거
+  test_char_segmentation.py      # 문자 분리
+  test_uploaded_plate.py         # 업로드 이미지 디버깅
+  README.md                      # 이 문서
 
 data/test/
   general/         # 일반 자가용
@@ -120,17 +144,36 @@ pytest tests/test_plate_regression.py -v -s -k "ocr_accuracy"
 ==================================================
 ```
 
+## 테스트 실행 방법
+
+### pytest를 사용한 자동화 테스트
+```bash
+# 전체 테스트 실행
+pytest tests/ -v -s
+
+# 특정 테스트 파일 실행
+pytest tests/test_plate_regression.py -v -s
+
+# 특정 유형만 테스트
+pytest tests/test_plate_regression.py -v -s -k "general"
+```
+
+### 개별 스크립트 실행
+```bash
+# 전처리 파이프라인 테스트
+python tests/test_preprocessing_only.py
+
+# 업로드 이미지 디버깅
+python tests/test_uploaded_plate.py
+
+# 고급 전처리 테스트
+python tests/test_advanced_preprocessing.py
+```
+
 ## 주의사항
 
 - 테스트 이미지는 실제 사용 환경과 유사한 조건으로 준비
 - 다양한 조명, 각도, 거리의 이미지 포함
 - GT 데이터는 정확하게 입력 (오타 주의)
 - 테스트 실행 시 모델 로딩으로 인한 초기 지연 발생 가능
-
-## 추가 테스트
-
-더 상세한 테스트가 필요한 경우:
-
-1. `test_char_segmentation.py`: 문자 영역 추출 테스트
-2. `test_advanced_preprocessing.py`: 고급 전처리 테스트
-3. `test_background_removal.py`: 배경 제거 테스트
+- 시각화 테스트는 `cv2.imshow()` 창을 닫아야 다음 단계로 진행됨

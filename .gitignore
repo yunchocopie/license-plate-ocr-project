@@ -12,6 +12,13 @@ __pycache__/
 *.so
 .Python
 
+# 테스트 관련
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
 # 배포 관련
 build/
 dist/
